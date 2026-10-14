@@ -80,7 +80,7 @@ function QuickLink({ icon, title, onPress }: { icon: React.ComponentProps<typeof
 }
 
 export function TeamScreen() {
-  const { data, addEmployee, updateEmployee } = usePlanner();
+  const { data, addEmployee, updateEmployee, removeEmployee } = usePlanner();
   const [formVisible, setFormVisible] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | undefined>();
   const employees = data.employees.filter((employee) => employee.active);
@@ -91,7 +91,7 @@ export function TeamScreen() {
       <PageHeading eyebrow="Jouw mensen" title="Medewerkers" subtitle={`${employees.length} actieve ${employees.length === 1 ? 'medewerker' : 'medewerkers'}`} right={<Pressable onPress={openNew} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.primary }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
       {employees.length > 0 ? <Text style={{ color: palette.muted, fontSize: 12, marginBottom: 13 }}>Team gewijzigd? Open Weekrooster en genereer de gewenste weken opnieuw.</Text> : null}
       {employees.length === 0 ? <EmptyState title="Nog geen teamleden" detail="Voeg je vaste team toe. De normale werkdagen en uren hoef je daarna niet steeds opnieuw in te voeren." icon="people-outline" action={<PrimaryButton title="Medewerker toevoegen" icon="person-add" onPress={openNew} />} /> : <View style={{ gap: 10 }}>
-        {employees.map((employee) => <TeamMember key={employee.id} employee={employee} onEdit={() => { setSelectedEmployee(employee); setFormVisible(true); }} />)}
+        {employees.map((employee) => <TeamMember key={employee.id} employee={employee} onEdit={() => { setSelectedEmployee(employee); setFormVisible(true); }} onDelete={() => Alert.alert('Medewerker verwijderen?', `${employee.displayName} en diens afwezigheden verdwijnen. Betrokken roosters worden opnieuw opgebouwd als concept.`, [{ text: 'Annuleren', style: 'cancel' }, { text: 'Verwijderen', style: 'destructive', onPress: () => removeEmployee(employee.id) }])} />)}
         <View style={{ marginTop: 7 }}><SecondaryButton title="Nog iemand toevoegen" icon="add" onPress={openNew} /></View>
       </View>}
     </ScrollView>
@@ -99,10 +99,10 @@ export function TeamScreen() {
   </View>;
 }
 
-function TeamMember({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
+function TeamMember({ employee, onEdit, onDelete }: { employee: Employee; onEdit: () => void; onDelete: () => void }) {
   const weekDays = WEEKDAYS.filter(({ id }) => employee.availability[id]);
   return <Card style={{ padding: 14 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}><Avatar employee={employee} size={45} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontSize: 15, fontWeight: '800' }}>{employee.displayName}{employee.kind === 'intern' ? ' · Stagiair' : ''}</Text><Text style={{ color: palette.muted, fontSize: 12, marginTop: 3 }}>{employee.role}{employee.internship ? ` · ${employee.internship.startDate} t/m ${employee.internship.endDate}` : ''}</Text></View><Pill text={`${employee.weeklyContractMinutes / 60} U`} /><Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel={`${employee.displayName} bewerken`} style={{ padding: 10 }}><Ionicons name="create-outline" size={21} color={palette.primary} /></Pressable></View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}><Avatar employee={employee} size={45} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontSize: 15, fontWeight: '800' }}>{employee.displayName}{employee.kind === 'intern' ? ' · Stagiair' : employee.kind === 'periodic' ? ' · Periodiek' : ''}</Text><Text style={{ color: palette.muted, fontSize: 12, marginTop: 3 }}>{employee.role}{employee.internship || employee.period ? ` · ${(employee.internship ?? employee.period)!.startDate} t/m ${(employee.internship ?? employee.period)!.endDate}` : ''}</Text></View><Pill text={`${employee.weeklyContractMinutes / 60} U`} /><Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel={`${employee.displayName} bewerken`} style={{ padding: 10 }}><Ionicons name="create-outline" size={21} color={palette.primary} /></Pressable><Pressable onPress={onDelete} accessibilityRole="button" accessibilityLabel={`${employee.displayName} verwijderen`} style={{ padding: 10 }}><Ionicons name="trash-outline" size={20} color="#C05F59" /></Pressable></View>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 13 }}>{weekDays.map(({ id, short }) => { const window = employee.availability[id]!; return <View key={id} style={{ borderRadius: 10, backgroundColor: '#F4F5F8', paddingHorizontal: 8, paddingVertical: 6 }}><Text style={{ color: palette.ink, fontSize: 10, fontWeight: '800' }}>{short} {formatMinutes(window.startMinute)}–{formatMinutes(window.endMinute)}</Text></View>; })}</View>
   </Card>;
 }

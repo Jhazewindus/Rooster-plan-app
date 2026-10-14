@@ -22,9 +22,10 @@ const asDate = (value: string): Date => new Date(value);
 
 export function canWorkOnDate(employee: Employee, date: Date): boolean {
   if (!employee.active) return false;
-  if (employee.kind !== 'intern') return true;
+  if (employee.kind !== 'intern' && employee.kind !== 'periodic') return true;
   const key = dateKey(date);
-  return Boolean(employee.internship && employee.internship.startDate <= key && key <= employee.internship.endDate);
+  const range = employee.kind === 'intern' ? employee.internship : employee.period;
+  return Boolean(range && range.startDate <= key && key <= range.endDate);
 }
 
 export function hasRegularCoverage(start: Date, end: Date, shifts: Shift[], employees: Employee[]): boolean {
@@ -56,6 +57,30 @@ export function workedMinutes(shift: Shift, settings?: PlannerSettings): number 
     coveredUntil = Math.max(coveredUntil, until);
   }
   return Math.max(0, durationMinutes(shift) - Math.round(deducted / 60_000));
+}
+
+export type CoverageGap = { startAt: string; endAt: string; staffCount: number };
+
+/** Count distinct, non-intern staff throughout the required daily opening hours. */
+export function dailyCoverageGaps(day: Date, shifts: Shift[], employees: Employee[]): CoverageGap[] {
+  const start = atMinute(day, 7 * 60).getTime();
+  const end = atMinute(day, 19 * 60 + 30).getTime();
+  const eligible = new Set(employees.filter((employee) => employee.active && employee.kind !== 'intern' && canWorkOnDate(employee, day)).map((employee) => employee.id));
+  const windows = shifts.filter((shift) => shift.employeeId && eligible.has(shift.employeeId))
+    .map((shift) => ({ employeeId: shift.employeeId!, from: Math.max(start, asDate(shift.startAt).getTime()), until: Math.min(end, asDate(shift.endAt).getTime()) }))
+    .filter((window) => window.until > window.from);
+  const points = [...new Set([start, end, ...windows.flatMap((window) => [window.from, window.until])])].sort((a, b) => a - b);
+  const gaps: CoverageGap[] = [];
+  for (let index = 0; index < points.length - 1; index++) {
+    const from = points[index];
+    const until = points[index + 1];
+    const staffCount = new Set(windows.filter((window) => window.from <= from && window.until >= until).map((window) => window.employeeId)).size;
+    if (staffCount >= 5) continue;
+    const previous = gaps.at(-1);
+    if (previous && previous.endAt === new Date(from).toISOString() && previous.staffCount === staffCount) previous.endAt = new Date(until).toISOString();
+    else gaps.push({ startAt: new Date(from).toISOString(), endAt: new Date(until).toISOString(), staffCount });
+  }
+  return gaps;
 }
 
 function subtract(blockStart: Date, blockEnd: Date, window: [Date, Date]): [Date, Date][] {
@@ -218,6 +243,18 @@ export function rebuildAffectedSchedules(current: PlannerData, absences: Absence
   });
 }
 
+/** Remove a team member and rebuild weeks that referred to them. */
+export function removeEmployeeFromData(current: PlannerData, employeeId: string): PlannerData {
+  if (!current.employees.some((employee) => employee.id === employeeId)) return current;
+  const employees = current.employees.filter((employee) => employee.id !== employeeId);
+  const absences = current.absences.filter((absence) => absence.employeeId !== employeeId);
+  const schedules = current.schedules.map((schedule) => {
+    const affected = [...schedule.shifts, ...(schedule.manualShifts ?? [])].some((shift) => shift.employeeId === employeeId || shift.originalEmployeeId === employeeId);
+    return affected ? rebuildSchedule(schedule, employees, absences) : schedule;
+  });
+  return { ...current, employees, absences, schedules };
+}
+
 export function recommendations(openShift: Shift, schedule: Schedule, employees: Employee[], absences: Absence[], settings?: PlannerSettings): Recommendation[] {
   const activeEmployees = employees.filter((employee) => employee.active);
   const minutesByEmployee = new Map<string, number>();
@@ -243,7 +280,7 @@ export function recommendations(openShift: Shift, schedule: Schedule, employees:
     let score = 0;
     const reasons: string[] = [];
 
-    if (outsideStage) { score -= 100; reasons.push('Buiten de stageperiode'); }
+    if (outsideStage) { score -= 100; reasons.push(employee.kind === 'periodic' ? 'Buiten de werkperiode' : 'Buiten de stageperiode'); }
     else if (noSupervisor) { score -= 100; reasons.push('Geen begeleidende medewerker'); }
     else if (absent) { score -= 100; reasons.push('Afwezig op dit moment'); }
     else if (conflict) { score -= 100; reasons.push('Heeft al een overlappende dienst'); }

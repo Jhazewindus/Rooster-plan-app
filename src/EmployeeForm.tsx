@@ -17,9 +17,11 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount, employee
   const [role, setRole] = useState('Dierenverzorger');
   const [contractHours, setContractHours] = useState('32');
   const [days, setDays] = useState(initialDays);
-  const [kind, setKind] = useState<'regular' | 'intern'>('regular');
+  const [kind, setKind] = useState<NonNullable<Employee['kind']>>('regular');
   const [stageStart, setStageStart] = useState('');
   const [stageEnd, setStageEnd] = useState('');
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
 
   useEffect(() => {
     if (!visible) return;
@@ -30,6 +32,8 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount, employee
     setKind(employee?.kind ?? 'regular');
     setStageStart(employee?.internship?.startDate ?? '');
     setStageEnd(employee?.internship?.endDate ?? '');
+    setPeriodStart(employee?.period?.startDate ?? '');
+    setPeriodEnd(employee?.period?.endDate ?? '');
     setDays(employee ? Object.fromEntries(WEEKDAYS.map(({ id }) => [id, {
       enabled: Boolean(employee.availability[id]),
       start: employee.availability[id] ? formatMinutes(employee.availability[id]!.startMinute) : '07:00',
@@ -46,6 +50,9 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount, employee
     if (kind === 'intern' && (!parseDateKey(stageStart) || !parseDateKey(stageEnd) || stageEnd < stageStart)) {
       Alert.alert('Stageperiode controleren', 'Vul geldige begin- en einddatums in (JJJJ-MM-DD).'); return;
     }
+    if (kind === 'periodic' && (!parseDateKey(periodStart) || !parseDateKey(periodEnd) || periodEnd < periodStart)) {
+      Alert.alert('Werkperiode controleren', 'Vul geldige begin- en einddatums in (JJJJ-MM-DD).'); return;
+    }
     const availability: Employee['availability'] = {};
     for (const { id, long } of WEEKDAYS) {
       const day = days[id];
@@ -56,7 +63,7 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount, employee
       availability[id] = { startMinute: start, endMinute: end };
     }
     if (Object.keys(availability).length === 0) { Alert.alert('Werkdagen ontbreken', 'Selecteer ten minste één vaste werkdag.'); return; }
-    onSave({ firstName: firstName.trim(), lastName: lastName.trim(), role: role.trim() || 'Medewerker', color: employee?.color ?? EMPLOYEE_COLORS[employeeCount % EMPLOYEE_COLORS.length], weeklyContractMinutes: Math.round(hours * 60), availability, kind, internship: kind === 'intern' ? { startDate: stageStart.trim(), endDate: stageEnd.trim() } : undefined });
+    onSave({ firstName: firstName.trim(), lastName: lastName.trim(), role: role.trim() || 'Medewerker', color: employee?.color ?? EMPLOYEE_COLORS[employeeCount % EMPLOYEE_COLORS.length], weeklyContractMinutes: Math.round(hours * 60), availability, kind, internship: kind === 'intern' ? { startDate: stageStart.trim(), endDate: stageEnd.trim() } : undefined, period: kind === 'periodic' ? { startDate: periodStart.trim(), endDate: periodEnd.trim() } : undefined });
     close();
   };
 
@@ -76,14 +83,18 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount, employee
               <Field label="Achternaam" value={lastName} onChangeText={setLastName} placeholder="Bijvoorbeeld Jansen" autoCapitalize="words" returnKeyType="next" />
               <Field label="Functie" value={role} onChangeText={setRole} placeholder="Bijvoorbeeld Dierenverzorger" autoCapitalize="words" />
               <Field label="Contracturen per week" value={contractHours} onChangeText={setContractHours} placeholder="32" keyboardType="decimal-pad" />
-              <Pressable onPress={() => setKind((current) => current === 'intern' ? 'regular' : 'intern')} accessibilityRole="checkbox" accessibilityState={{ checked: kind === 'intern' }} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 4 }}>
-                <Ionicons name={kind === 'intern' ? 'checkbox' : 'square-outline'} size={23} color={palette.primary} />
-                <Text style={{ color: palette.ink, fontWeight: '700' }}>Stagiair</Text>
-              </Pressable>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {([['regular', 'Vast'], ['periodic', 'Periodiek'], ['intern', 'Stagiair']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setKind(value)} accessibilityRole="radio" accessibilityState={{ selected: kind === value }} style={{ borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: kind === value ? palette.primary : palette.palePrimary }}><Text style={{ color: kind === value ? '#FFF' : palette.primaryDark, fontWeight: '800' }}>{label}</Text></Pressable>)}
+              </View>
               {kind === 'intern' ? <View style={{ gap: 11 }}>
                 <Text style={{ color: palette.muted, fontSize: 12 }}>Een stagiair wordt alleen binnen de stageperiode en samen met een gewone medewerker ingepland.</Text>
                 <Field label="Stage begint (JJJJ-MM-DD)" value={stageStart} onChangeText={setStageStart} placeholder="2026-10-14" keyboardType="numbers-and-punctuation" />
                 <Field label="Stage eindigt (JJJJ-MM-DD)" value={stageEnd} onChangeText={setStageEnd} placeholder="2027-01-31" keyboardType="numbers-and-punctuation" />
+              </View> : null}
+              {kind === 'periodic' ? <View style={{ gap: 11 }}>
+                <Text style={{ color: palette.muted, fontSize: 12 }}>Een periodieke medewerker wordt alleen binnen deze werkperiode ingepland en kan zelfstandig werken.</Text>
+                <Field label="Periode begint (JJJJ-MM-DD)" value={periodStart} onChangeText={setPeriodStart} placeholder="2026-10-14" keyboardType="numbers-and-punctuation" />
+                <Field label="Periode eindigt (JJJJ-MM-DD)" value={periodEnd} onChangeText={setPeriodEnd} placeholder="2027-01-31" keyboardType="numbers-and-punctuation" />
               </View> : null}
             </View>
 

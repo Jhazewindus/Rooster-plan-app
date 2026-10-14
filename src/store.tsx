@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Absence, dateKey, Employee, emptyPlannerData, makeId, mondayOf, PlannerData, PlannerSettings, Schedule, Shift, Weekday } from './domain';
-import { assignReplacement, canWorkOnDate, currentSchedule, generateScheduleRange, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, suggestCoverage } from './planner';
+import { assignReplacement, canWorkOnDate, currentSchedule, generateScheduleRange, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, removeEmployeeFromData, suggestCoverage } from './planner';
 
 const STORAGE_KEY = 'roosterplan.v1';
 type PlannerContextValue = {
@@ -13,6 +13,7 @@ type PlannerContextValue = {
   goToWeek: (date: Date) => void;
   addEmployee: (employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void;
   updateEmployee: (id: string, employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void;
+  removeEmployee: (id: string) => void;
   addAbsence: (absence: Omit<Absence, 'id'>) => void;
   updateAbsence: (id: string, absence: Omit<Absence, 'id'>) => void;
   removeAbsence: (id: string) => void;
@@ -67,6 +68,8 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
       ? { ...item, ...input, displayName: [input.firstName.trim(), input.lastName.trim()].filter(Boolean).join(' ') } : item) }));
   }, []);
 
+  const removeEmployee = useCallback((id: string) => setData((current) => removeEmployeeFromData(current, id)), []);
+
   const addAbsence = useCallback((input: Omit<Absence, 'id'>) => {
     const absence: Absence = { ...input, id: makeId() };
     setData((current) => ({
@@ -112,7 +115,7 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     const end = new Date(input.endAt);
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start || dateKey(start) !== dateKey(end)) return 'Kies een begin- en eindtijd op dezelfde dag.';
     const employee = data.employees.find((item) => item.id === input.employeeId);
-    if (!employee || !canWorkOnDate(employee, start)) return 'Deze medewerker kan niet op die dag werken (controleer ook de stageperiode).';
+    if (!employee || !canWorkOnDate(employee, start)) return 'Deze medewerker kan niet op die dag werken (controleer ook de werkperiode).';
     const existing = currentSchedule(data, start);
     const base = existing ?? generateWeek(start, data.employees, data.absences);
     const otherShifts = base.shifts.filter((shift) => shift.id !== existingId);
@@ -183,9 +186,9 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
   const value = useMemo<PlannerContextValue>(() => ({
     data, weekStart, schedule, ready, error,
     goToWeek: (date) => setWeekStart(mondayOf(date)),
-    addEmployee, updateEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths,
+    addEmployee, updateEmployee, removeEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths,
     saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo,
-  }), [data, weekStart, schedule, ready, error, addEmployee, updateEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths, saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo]);
+  }), [data, weekStart, schedule, ready, error, addEmployee, updateEmployee, removeEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths, saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 }

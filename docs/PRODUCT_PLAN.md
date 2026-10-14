@@ -1,45 +1,21 @@
-# RoosterPlan product and technical plan
+# RoosterPlan — productnotities
 
-## MVP data model
+RoosterPlan is een offline Android-tabletapp voor personeelsplanning in een dierenopvang. De app bewaart medewerkers, afwezigheden, pauzeregels en roosters op de tablet. Er is geen account of server.
 
-- **Employee**: stable ID, first/last/display name, role, avatar or profile image, optional roster color, weekly contract minutes, active flag.
-- **Default availability**: employee ID, ISO weekday, start/end local time. Keep one interval per weekday for the first version; the model can expand to breaks or multiple intervals.
-- **Absence**: employee ID, kind, start/end instants, optional note. A full day is stored as the local day's start and the next local day's start; a partial absence stores its actual interval.
-- **Schedule**: stable ID, Monday week start, draft/final/published status, timestamps, and shifts.
-- **Shift**: optional assigned employee, original employee, start/end instants, default/replacement/manual source, optional note. An unassigned shift interval is an open service.
-- **Calendar connection and mapping**: employee, provider, calendar ID; shift ID and external event ID. These are reserved for phase 2.
+## Planning
 
-Keep scheduling decisions in a platform-independent domain layer. The first local repository can use on-device persistence behind a repository interface; a future API implementation can replace it without changing the planner rules. Store calendar dates as instants and calculate weekly boundaries in the team's local time zone to handle daylight-saving changes correctly.
+Een rooster loopt van maandag tot en met zondag. De generator gebruikt de ingestelde werkdagen en tijden van actieve medewerkers. Je kunt een week of 1, 6 of 12 maanden vooruit plannen. Opnieuw genereren verwerkt de actuele teambezetting, afwezigheid en handmatige diensten.
 
-## Business rules
+Een stagiair staat alleen binnen de stageperiode op het rooster en alleen wanneer tijdens de hele dienst ook een gewone medewerker werkt. Een periodieke medewerker heeft eveneens een begin- en einddatum, maar mag zelfstandig werken. Afwezigheid maakt het overlappende deel van een dienst open. De planner kan een vervanger voor een hele of gedeeltelijke open dienst kiezen; overlappende diensten en afwezigheid worden uitgesloten.
 
-1. A generated week starts Monday and creates one shift for each active employee's configured work window.
-2. Applying an absence intersects it with assigned shifts. Preserve the unaffected before/after intervals and turn only the overlap into an open shift linked to the original employee.
-3. A replacement is blocked when that employee has an overlapping shift or absence. Show the reason for blocked recommendations.
-4. Rank eligible replacements by availability, normal workday, remaining contract hours, matching role, and fair distribution of extra hours. A normal day off is still eligible at a lower score; contract overrun is a warning, not an automatic block.
-5. Show weekly hours before and after a proposed assignment. The planner explicitly confirms each replacement and schedule status change.
-6. A replacement can cover only part of an open shift. Keep any uncovered interval open until the planner resolves it.
-7. Scores support sorting only. The interface explains recommendations in plain language and never assigns a person automatically.
-8. Schedule transitions are draft → final → published. Editing a final schedule requires an explicit return to draft.
+Betrokken weken worden na een wijziging in afwezigheid opnieuw opgebouwd. Bij het verwijderen van een medewerker verdwijnen ook diens afwezigheden en worden betrokken weken concept. Handmatig toegevoegde diensten kun je per dag wijzigen of verwijderen.
 
-## Main navigation
+Pauzeregels kunnen voor de dag of avond gelden. Alleen de minuten die daadwerkelijk binnen een dienst vallen, verminderen de getelde werkuren. Overlappende pauzes tellen niet dubbel.
 
-- **Dashboard**: today's staffing and absences, open-shift count, weekly hours, over-contract and under-contract alerts.
-- **Week**: seven-day roster, previous/current/next week navigation, shift detail, open-shift recommendations, schedule status, and PNG export.
-- **Team**: employee list, employee detail, role, contract hours, and per-day availability editor.
-- **Absences**: absence list and a form for full-day or partial-day sickness, vacation, leave, or other unavailability.
-- **Settings**: business name, export style, and later calendar connections.
+Iedere dag vraagt dekking van 07:00 tot 19:30 met minstens vijf gelijktijdig ingeplande medewerkers, zonder stagiairs mee te tellen. De weekweergave en gedeelde afbeeldingen markeren de intervallen waar dit niet lukt.
 
-Use both text/icons and color for status. Put all-day and timed availability in the employee editor; do not assume identical hours on every workday.
+## Delen en installeren
 
-## MVP delivery sequence
+Een week en maand kunnen als PNG worden gedeeld. Een jaar gaat naar een Excel-werkmap met maandtotalen en een rij per ingeplande of open dienst. Dagen zonder gegenereerd rooster worden in de maandafbeelding aangeduid. Exports bevatten alleen roosters die al op de tablet staan.
 
-1. Domain model, local persistence, sample team, and tests for week boundaries and time intervals.
-2. Team list and employee editor for contract hours and distinct weekday windows.
-3. Standard-week generation, week navigation, and hour totals.
-4. Full/partial absence entry, open-interval detection, and conflict validation.
-5. Ranked replacement suggestions, clear reasons, split coverage, and planner-confirmed assignment.
-6. Draft/final states and a designed, high-resolution PNG export with share support.
-7. Verify the complete flow with a representative team: create people → generate week → report partial sickness → review open interval → assign one or more replacements → finalize → export.
-
-Google Calendar sync, employee accounts, leave requests, notifications, and publication are phase 2. Sync should use stored event mappings and idempotent upsert/delete operations after an employee explicitly connects an account.
+De ondertekende APK staat op de `main`-branch; de downloadlink staat in de [README](../README.md). Houd voor nieuwe versies dezelfde privésleutel aan, zodat Android de app kan bijwerken zonder de lokale gegevens te wissen.

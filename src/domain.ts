@@ -15,8 +15,9 @@ export type Employee = {
   color: string;
   weeklyContractMinutes: number;
   active: boolean;
-  kind?: 'regular' | 'intern';
+  kind?: 'regular' | 'intern' | 'periodic';
   internship?: { startDate: string; endDate: string };
+  period?: { startDate: string; endDate: string };
   availability: Partial<Record<Weekday, TimeWindow>>;
 };
 
