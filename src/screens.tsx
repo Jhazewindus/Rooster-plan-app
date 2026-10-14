@@ -84,7 +84,7 @@ export function TeamScreen() {
   const [formVisible, setFormVisible] = useState(false);
   const employees = data.employees.filter((employee) => employee.active);
   return <View style={{ flex: 1, backgroundColor: palette.page }}>
-    <ScrollView contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
       <PageHeading eyebrow="Jouw mensen" title="Medewerkers" subtitle={`${employees.length} actieve ${employees.length === 1 ? 'medewerker' : 'medewerkers'}`} right={<Pressable onPress={() => setFormVisible(true)} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.primary }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
       {employees.length === 0 ? <EmptyState title="Nog geen teamleden" detail="Voeg je vaste team toe. De normale werkdagen en uren hoef je daarna niet steeds opnieuw in te voeren." icon="people-outline" action={<PrimaryButton title="Medewerker toevoegen" icon="person-add" onPress={() => setFormVisible(true)} />} /> : <View style={{ gap: 10 }}>
         {employees.map((employee) => <TeamMember key={employee.id} employee={employee} />)}
@@ -108,7 +108,7 @@ export function AbsencesScreen() {
   const [formVisible, setFormVisible] = useState(false);
   const sortedAbsences = useMemo(() => [...planner.data.absences].sort((a, b) => a.startAt.localeCompare(b.startAt)), [planner.data.absences]);
   return <View style={{ flex: 1, backgroundColor: palette.page }}>
-    <ScrollView contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
       <PageHeading eyebrow="Uitzonderingen" title="Afwezigheid" subtitle="Houd beschikbaarheid actueel." right={<Pressable disabled={!planner.data.employees.length} onPress={() => setFormVisible(true)} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: planner.data.employees.length ? palette.primary : '#C9CDE1' }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
       {sortedAbsences.length === 0 ? <EmptyState title="Iedereen is beschikbaar" detail="Ziekte, vakantie of een vrije dag? Voeg het toe en open diensten verschijnen vanzelf." icon="sunny-outline" action={planner.data.employees.length ? <PrimaryButton title="Afwezigheid melden" icon="add" onPress={() => setFormVisible(true)} /> : undefined} /> : <View style={{ gap: 9 }}>{sortedAbsences.map((absence) => <AbsenceRow key={absence.id} absence={absence} employee={planner.data.employees.find((item) => item.id === absence.employeeId)} />)}</View>}
     </ScrollView>

@@ -3,13 +3,14 @@ import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View }
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EMPLOYEE_COLORS, Employee, WEEKDAYS, Weekday } from './domain';
-import { Field, palette, PrimaryButton, RoundIconButton } from './ui';
+import { Field, palette, PrimaryButton, RoundIconButton, TimeField } from './ui';
+import { parseTimeInput } from './timeInput';
 
 type DraftDay = { enabled: boolean; start: string; end: string };
 type Props = { visible: boolean; onClose: () => void; onSave: (employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void; employeeCount: number };
 
 export function EmployeeForm({ visible, onClose, onSave, employeeCount }: Props) {
-  const initialDays = useMemo(() => Object.fromEntries(WEEKDAYS.map(({ id }) => [id, { enabled: id < 6, start: '08:00', end: '17:00' }])) as Record<Weekday, DraftDay>, []);
+  const initialDays = useMemo(() => Object.fromEntries(WEEKDAYS.map(({ id }) => [id, { enabled: id < 6, start: '07:00', end: '17:00' }])) as Record<Weekday, DraftDay>, []);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [role, setRole] = useState('Dierenverzorger');
@@ -28,8 +29,8 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount }: Props)
     for (const { id, long } of WEEKDAYS) {
       const day = days[id];
       if (!day.enabled) continue;
-      const start = parseTime(day.start);
-      const end = parseTime(day.end);
+      const start = parseTimeInput(day.start);
+      const end = parseTimeInput(day.end);
       if (start === null || end === null || end <= start) { Alert.alert('Tijden controleren', `Vul geldige tijden in voor ${long}; de eindtijd moet na de begintijd liggen.`); return; }
       availability[id] = { startMinute: start, endMinute: end };
     }
@@ -43,12 +44,12 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount }: Props)
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}>
-        <KeyboardAvoidingView style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 9, paddingBottom: 10 }}>
             <View><Text style={{ color: palette.muted, fontWeight: '700', fontSize: 12 }}>TEAM INSTELLEN</Text><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 23, marginTop: 3 }}>Medewerker toevoegen</Text></View>
             <RoundIconButton icon="close" accessibilityLabel="Sluiten" onPress={close} />
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 18, paddingBottom: 32, gap: 15 }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ flexGrow: 1, padding: 18, paddingBottom: 48, gap: 15 }}>
             <View style={{ backgroundColor: '#FFF', borderRadius: 20, borderWidth: 1, borderColor: '#E9E0D5', padding: 17, gap: 13 }}>
               <Field label="Voornaam" value={firstName} onChangeText={setFirstName} placeholder="Bijvoorbeeld Lisa" autoCapitalize="words" returnKeyType="next" />
               <Field label="Achternaam" value={lastName} onChangeText={setLastName} placeholder="Bijvoorbeeld Jansen" autoCapitalize="words" returnKeyType="next" />
@@ -71,9 +72,9 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount }: Props)
                     </Pressable>
                   </View>
                   {days[id].enabled ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 10, marginLeft: 44 }}>
-                    <Field accessibilityLabel={`${long} begintijd`} label="Van" value={days[id].start} onChangeText={(value) => patchDay(id, { start: value })} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="08:00" style={{ width: 88, minHeight: 40, paddingHorizontal: 9, textAlign: 'center' }} />
+                    <TimeField accessibilityLabel={`${long} begintijd`} label="Van" value={days[id].start} onChangeText={(value) => patchDay(id, { start: value })} placeholder="07:00" style={{ width: 88, minHeight: 40, paddingHorizontal: 9, textAlign: 'center' }} />
                     <Text style={{ color: palette.muted, paddingTop: 18 }}>tot</Text>
-                    <Field accessibilityLabel={`${long} eindtijd`} label="Tot" value={days[id].end} onChangeText={(value) => patchDay(id, { end: value })} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="17:00" style={{ width: 88, minHeight: 40, paddingHorizontal: 9, textAlign: 'center' }} />
+                    <TimeField accessibilityLabel={`${long} eindtijd`} label="Tot" value={days[id].end} onChangeText={(value) => patchDay(id, { end: value })} placeholder="17:00" style={{ width: 88, minHeight: 40, paddingHorizontal: 9, textAlign: 'center' }} />
                   </View> : null}
                 </View>
               ))}
@@ -84,13 +85,4 @@ export function EmployeeForm({ visible, onClose, onSave, employeeCount }: Props)
       </SafeAreaView>
     </Modal>
   );
-}
-
-function parseTime(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return null;
-  return hour * 60 + minute;
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Pressable, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Employee } from './domain';
+import { normalizeTimeInput } from './timeInput';
 
 export const palette = {
   page: '#F8F4EC',
@@ -75,6 +76,11 @@ export function Field({ label, style, ...props }: TextInputProps & { label: stri
       <TextInput placeholderTextColor="#A99D91" {...props} style={[{ minHeight: 48, borderWidth: 1, borderColor: palette.line, borderRadius: 13, paddingHorizontal: 13, color: palette.ink, fontSize: 15, backgroundColor: '#FFFEFA' }, style]} />
     </View>
   );
+}
+
+export function TimeField({ value, onChangeText, ...props }: Omit<TextInputProps, 'value' | 'onChangeText'> & { label: string; value: string; onChangeText: (value: string) => void }) {
+  return <Field {...props} value={value} onChangeText={onChangeText} keyboardType="numbers-and-punctuation" maxLength={5} selectTextOnFocus
+    onEndEditing={(event) => onChangeText(normalizeTimeInput(event.nativeEvent.text))} />;
 }
 
 export function SectionTitle({ title, trailing }: { title: string; trailing?: React.ReactNode }) {

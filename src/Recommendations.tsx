@@ -32,7 +32,7 @@ export function RecommendationsSheet({ visible, onClose, shift, employees, sched
           <View><Text style={{ color: palette.muted, fontWeight: '700', fontSize: 11, letterSpacing: 0.9 }}>OPEN DIENST</Text><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 23, marginTop: 3 }}>Vervangers</Text></View>
           <RoundIconButton icon="close" accessibilityLabel="Sluiten" onPress={onClose} />
         </View>
-        <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 35, gap: 14 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingBottom: 35, gap: 14 }}>
           {shift ? <Card style={{ backgroundColor: '#FFF8F0', borderColor: '#F4E6D4' }}>
             <Text style={{ color: '#A6631D', fontSize: 11, fontWeight: '800', letterSpacing: 0.7 }}>OPEN TIJDVAK</Text>
             <Text style={{ color: palette.ink, fontSize: 20, fontWeight: '800', marginTop: 6 }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text>

@@ -40,7 +40,7 @@ export function WeekScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.page }}>
-      <ScrollView contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
         <PageHeading eyebrow="Planning" title="Weekrooster" subtitle="Jouw team, helder op een rij." right={schedule ? <RoundIconButton icon="share-outline" accessibilityLabel="Rooster exporteren" onPress={() => setExportOpen(true)} /> : undefined} />
         <Card style={{ paddingVertical: 13, paddingHorizontal: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -99,7 +99,7 @@ function ExportSheet({ visible, onClose, schedule, employees, weekStart, shotRef
   return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 }}><View><Text style={{ color: palette.muted, fontSize: 11, fontWeight: '800' }}>DELEN</Text><Text style={{ color: palette.ink, fontSize: 22, fontWeight: '800', marginTop: 3 }}>Rooster als afbeelding</Text></View><RoundIconButton icon="close" accessibilityLabel="Sluiten" onPress={onClose} /></View>
-      <ScrollView contentContainerStyle={{ alignItems: 'center', padding: 17, paddingBottom: 30, gap: 15 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', padding: 17, paddingBottom: 30, gap: 15 }}>
         <ViewShot ref={shotRef} options={{ format: 'png', quality: 1 }} style={{ width: '100%', maxWidth: 420 }}>
           <RosterPoster schedule={schedule} employees={employees} weekStart={weekStart} />
         </ViewShot>
