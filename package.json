@@ -1,0 +1,32 @@
+{
+  "name": "roosterplan",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "prebuild:android": "expo prebuild --platform android",
+    "build:android:local": "./scripts/build-android-apk.sh",
+    "typecheck": "tsc --noEmit",
+    "test:core": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "expo": "~57.0.29",
+    "expo-font": "~57.0.4",
+    "expo-sharing": "~57.0.23",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-view-shot": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "~19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.3"
+  }
+}
