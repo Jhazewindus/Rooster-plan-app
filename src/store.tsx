@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Absence, Employee, emptyPlannerData, makeId, PlannerData, Schedule, Shift, Weekday } from './domain';
-import { applyAbsence, assignReplacement, currentSchedule, generateWeek, recommendations, suggestCoverage } from './planner';
+import { Absence, dateKey, Employee, emptyPlannerData, makeId, mondayOf, PlannerData, PlannerSettings, Schedule, Shift, Weekday } from './domain';
+import { assignReplacement, canWorkOnDate, currentSchedule, generateScheduleRange, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, suggestCoverage } from './planner';
 
 const STORAGE_KEY = 'roosterplan.v1';
 type PlannerContextValue = {
@@ -12,8 +12,15 @@ type PlannerContextValue = {
   error: string | null;
   goToWeek: (date: Date) => void;
   addEmployee: (employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void;
+  updateEmployee: (id: string, employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void;
   addAbsence: (absence: Omit<Absence, 'id'>) => void;
+  updateAbsence: (id: string, absence: Omit<Absence, 'id'>) => void;
+  removeAbsence: (id: string) => void;
   generateCurrentWeek: () => void;
+  generateMonths: (months: 1 | 6 | 12) => void;
+  saveManualShift: (input: Omit<Shift, 'id' | 'source' | 'originalEmployeeId'>, existingId?: string) => string | null;
+  removeManualShift: (id: string) => void;
+  setSettings: (settings: PlannerSettings) => void;
   assign: (shiftId: string, employeeId: string) => boolean;
   useCoveragePlan: (shift: Shift) => boolean;
   setScheduleStatus: (status: Schedule['status']) => void;
@@ -55,26 +62,83 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     setData((current) => ({ ...current, employees: [...current.employees, employee] }));
   }, []);
 
+  const updateEmployee = useCallback((id: string, input: Omit<Employee, 'id' | 'displayName' | 'active'>) => {
+    setData((current) => ({ ...current, employees: current.employees.map((item) => item.id === id
+      ? { ...item, ...input, displayName: [input.firstName.trim(), input.lastName.trim()].filter(Boolean).join(' ') } : item) }));
+  }, []);
+
   const addAbsence = useCallback((input: Omit<Absence, 'id'>) => {
     const absence: Absence = { ...input, id: makeId() };
     setData((current) => ({
       ...current,
       absences: [...current.absences, absence],
-      schedules: current.schedules.map((item) => applyAbsence(item, absence)),
+      schedules: rebuildAffectedSchedules(current, [...current.absences, absence], [absence]),
     }));
   }, []);
 
+  const updateAbsence = useCallback((id: string, input: Omit<Absence, 'id'>) => {
+    setData((current) => {
+      const previous = current.absences.find((item) => item.id === id);
+      if (!previous) return current;
+      const updated = { ...input, id };
+      const absences = current.absences.map((item) => item.id === id ? updated : item);
+      return { ...current, absences, schedules: rebuildAffectedSchedules(current, absences, [previous, updated]) };
+    });
+  }, []);
+
+  const removeAbsence = useCallback((id: string) => {
+    setData((current) => {
+      const previous = current.absences.find((item) => item.id === id);
+      if (!previous) return current;
+      const absences = current.absences.filter((item) => item.id !== id);
+      return { ...current, absences, schedules: rebuildAffectedSchedules(current, absences, [previous]) };
+    });
+  }, []);
+
   const generateCurrentWeek = useCallback(() => {
-    const next = generateWeek(weekStart, data.employees, data.absences);
-    setData((current) => ({ ...current, schedules: [...current.schedules.filter((item) => dateKey(new Date(item.weekStart)) !== dateKey(weekStart)), next] }));
-  }, [data.absences, data.employees, weekStart]);
+    setData((current) => {
+      const old = currentSchedule(current, weekStart);
+      const next = old ? rebuildSchedule(old, current.employees, current.absences) : generateWeek(weekStart, current.employees, current.absences);
+      return { ...current, schedules: [...current.schedules.filter((item) => item.id !== old?.id), next] };
+    });
+  }, [weekStart]);
+
+  const generateMonths = useCallback((months: 1 | 6 | 12) => {
+    setData((current) => ({ ...current, schedules: generateScheduleRange(weekStart, months, current.employees, current.absences, current.schedules) }));
+  }, [weekStart]);
+
+  const saveManualShift = useCallback((input: Omit<Shift, 'id' | 'source' | 'originalEmployeeId'>, existingId?: string): string | null => {
+    const start = new Date(input.startAt);
+    const end = new Date(input.endAt);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start || dateKey(start) !== dateKey(end)) return 'Kies een begin- en eindtijd op dezelfde dag.';
+    const employee = data.employees.find((item) => item.id === input.employeeId);
+    if (!employee || !canWorkOnDate(employee, start)) return 'Deze medewerker kan niet op die dag werken (controleer ook de stageperiode).';
+    const existing = currentSchedule(data, start);
+    const base = existing ?? generateWeek(start, data.employees, data.absences);
+    const otherShifts = base.shifts.filter((shift) => shift.id !== existingId);
+    if (otherShifts.some((shift) => shift.employeeId === employee.id && overlapsShift(shift, start, end))) return 'Deze medewerker heeft al een overlappende dienst.';
+    if (data.absences.some((absence) => absence.employeeId === employee.id && new Date(absence.startAt) < end && new Date(absence.endAt) > start)) return 'Deze medewerker is dan afwezig.';
+    if (employee.kind === 'intern' && !hasRegularCoverage(start, end, otherShifts, data.employees)) return 'Een stagiair heeft tijdens de hele dienst een gewone medewerker nodig.';
+    const shift: Shift = { ...input, id: existingId ?? makeId(), source: 'manual', originalEmployeeId: null };
+    const manualShifts = [...(base.manualShifts ?? []).filter((item) => item.id !== existingId), shift];
+    const next = rebuildSchedule({ ...base, manualShifts }, data.employees, data.absences);
+    setData((current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== base.id), next] }));
+    return null;
+  }, [data]);
+
+  const removeManualShift = useCallback((id: string) => {
+    setData((current) => ({ ...current, schedules: current.schedules.map((item) => item.manualShifts?.some((shift) => shift.id === id)
+      ? rebuildSchedule({ ...item, manualShifts: item.manualShifts.filter((shift) => shift.id !== id) }, current.employees, current.absences) : item) }));
+  }, []);
+
+  const setSettings = useCallback((settings: PlannerSettings) => setData((current) => ({ ...current, settings })), []);
 
   const assign = useCallback((shiftId: string, employeeId: string) => {
     if (!schedule) return false;
     const target = schedule.shifts.find((item) => item.id === shiftId && item.employeeId === null);
     const employee = data.employees.find((item) => item.id === employeeId);
     if (!target || !employee) return false;
-    const option = recommendations(target, schedule, data.employees, data.absences).find((item) => item.employee.id === employeeId);
+    const option = recommendations(target, schedule, data.employees, data.absences, data.settings).find((item) => item.employee.id === employeeId);
     if (!option?.canCover) return false;
     updateSchedule(assignReplacement(schedule, shiftId, employeeId));
     return true;
@@ -113,14 +177,15 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     const end = new Date(monday); end.setHours(12, 0, 0, 0);
     const absence: Absence = { id: makeId(), employeeId: employees[0].id, type: 'sick', startAt: start.toISOString(), endAt: end.toISOString(), notes: 'Voorbeeld' };
     const demoSchedule = generateWeek(weekStart, employees, [absence]);
-    setData({ employees, absences: [absence], schedules: [demoSchedule] });
+    setData({ employees, absences: [absence], schedules: [demoSchedule], settings: { breaks: [] } });
   }, [weekStart]);
 
   const value = useMemo<PlannerContextValue>(() => ({
     data, weekStart, schedule, ready, error,
     goToWeek: (date) => setWeekStart(mondayOf(date)),
-    addEmployee, addAbsence, generateCurrentWeek, assign, useCoveragePlan, setScheduleStatus, loadDemo,
-  }), [data, weekStart, schedule, ready, error, addEmployee, addAbsence, generateCurrentWeek, assign, useCoveragePlan, setScheduleStatus, loadDemo]);
+    addEmployee, updateEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths,
+    saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo,
+  }), [data, weekStart, schedule, ready, error, addEmployee, updateEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths, saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 }
@@ -137,13 +202,6 @@ function employee(firstName: string, lastName: string, role: string, hours: numb
   return { id: makeId(), firstName, lastName, displayName: `${firstName} ${lastName}`, role, color, weeklyContractMinutes: hours * 60, active: true, availability };
 }
 
-function mondayOf(date: Date): Date {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
-  return result;
-}
-
-function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+function overlapsShift(shift: Shift, start: Date, end: Date): boolean {
+  return new Date(shift.startAt) < end && new Date(shift.endAt) > start;
 }

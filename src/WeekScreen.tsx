@@ -5,9 +5,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ViewShot, { ViewShotRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { Avatar, Card, EmptyState, PageHeading, Pill, PrimaryButton, RoundIconButton, SectionTitle, palette, SecondaryButton } from './ui';
-import { Employee, formatTime, Schedule, Shift, WEEKDAYS } from './domain';
+import { durationMinutes, Employee, formatTime, PlannerSettings, Schedule, Shift, WEEKDAYS } from './domain';
 import { usePlanner } from './store';
 import { RecommendationsSheet } from './Recommendations';
+import { ManualShiftForm } from './ManualShiftForm';
+import { workedMinutes } from './planner';
 
 export function WeekScreen() {
   const planner = usePlanner();
@@ -15,12 +17,28 @@ export function WeekScreen() {
   const [selectedShift, setSelectedShift] = useState<Shift | undefined>();
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [manualDay, setManualDay] = useState<Date | undefined>();
+  const [manualShift, setManualShift] = useState<Shift | undefined>();
   const weekShot = useRef<ViewShotRef>(null);
 
   const stepWeek = (amount: number) => {
     const next = new Date(weekStart); next.setDate(next.getDate() + amount * 7); planner.goToWeek(next);
   };
   const goCurrent = () => planner.goToWeek(new Date());
+  const openManual = (day: Date, shift?: Shift) => { setManualDay(day); setManualShift(shift); };
+  const closeManual = () => { setManualDay(undefined); setManualShift(undefined); };
+  const generateMonths = (months: 1 | 6 | 12) => {
+    const end = new Date(weekStart); end.setMonth(end.getMonth() + months);
+    const hasExisting = data.schedules.some((item) => new Date(item.weekStart) >= weekStart && new Date(item.weekStart) < end);
+    const run = () => planner.generateMonths(months);
+    if (!hasExisting) { run(); return; }
+    Alert.alert('Roosters opnieuw genereren?', 'Bestaande weken worden opnieuw opgebouwd met het huidige team. Handmatige diensten en nog geldige vervangers blijven behouden; de weken worden concept.', [
+      { text: 'Annuleren', style: 'cancel' }, { text: 'Opnieuw genereren', onPress: run },
+    ]);
+  };
+  const generateOneWeek = () => Alert.alert('Deze week opnieuw genereren?', 'De week wordt opnieuw opgebouwd met het huidige team. Handmatige diensten en nog geldige vervangers blijven behouden.', [
+    { text: 'Annuleren', style: 'cancel' }, { text: 'Opnieuw genereren', onPress: planner.generateCurrentWeek },
+  ]);
   const openCount = schedule?.shifts.filter((shift) => shift.employeeId === null).length ?? 0;
   const exportPng = async () => {
     try {
@@ -53,6 +71,15 @@ export function WeekScreen() {
           </View>
         </Card>
 
+        {data.employees.some((employee) => employee.active) ? <Card style={{ marginTop: 13, gap: 10 }}>
+          <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 15 }}>Vooruit plannen</Text>
+          <Text style={{ color: palette.muted, fontSize: 12 }}>Vanaf deze week genereren of opnieuw genereren met het huidige team.</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {([1, 6, 12] as const).map((months) => <Pressable key={months} onPress={() => generateMonths(months)} style={{ borderRadius: 12, backgroundColor: palette.palePrimary, paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: palette.primaryDark, fontWeight: '800' }}>{months} {months === 1 ? 'maand' : 'maanden'}</Text></Pressable>)}
+            {schedule ? <Pressable onPress={generateOneWeek} style={{ borderRadius: 12, backgroundColor: '#F2F3F6', paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Deze week opnieuw</Text></Pressable> : null}
+          </View>
+        </Card> : null}
+
         {schedule ? <>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 4 }}>
             <Pill text={schedule.status === 'draft' ? 'CONCEPT' : schedule.status === 'final' ? 'DEFINITIEF' : 'GEPUBLICEERD'} color={schedule.status === 'draft' ? palette.amber : palette.green} background={schedule.status === 'draft' ? palette.paleAmber : palette.paleGreen} />
@@ -63,36 +90,41 @@ export function WeekScreen() {
             {WEEKDAYS.map(({ id, long, short }) => {
               const day = new Date(weekStart); day.setDate(day.getDate() + id - 1);
               const dayShifts = schedule.shifts.filter((shift) => sameLocalDay(new Date(shift.startAt), day)).sort((a, b) => a.startAt.localeCompare(b.startAt));
-              const dayAbsences = data.absences.filter((absence) => absence.startAt.slice(0, 10) === day.toISOString().slice(0, 10));
+              const nextDay = new Date(day); nextDay.setDate(nextDay.getDate() + 1);
+              const dayAbsences = data.absences.filter((absence) => new Date(absence.startAt) < nextDay && new Date(absence.endAt) > day);
               return <Card key={id} style={{ padding: 14 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: dayShifts.length ? 10 : 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><View style={{ width: 36, height: 36, borderRadius: 13, backgroundColor: isToday(day) ? palette.primary : '#EEF0F5', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: isToday(day) ? '#FFF' : palette.muted, fontSize: 10, fontWeight: '800' }}>{short}</Text></View><View><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 14 }}>{long}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 2 }}>{new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'long' }).format(day)}</Text></View></View>
-                  <Text style={{ color: dayShifts.some((shift) => shift.employeeId === null) ? palette.amber : palette.muted, fontSize: 11, fontWeight: '700' }}>{dayShifts.length ? `${dayShifts.length} dienst${dayShifts.length === 1 ? '' : 'en'}` : 'Geen diensten'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ color: dayShifts.some((shift) => shift.employeeId === null) ? palette.amber : palette.muted, fontSize: 11, fontWeight: '700' }}>{dayShifts.length ? `${dayShifts.length} dienst${dayShifts.length === 1 ? '' : 'en'}` : 'Geen diensten'}</Text><Pressable onPress={() => openManual(day)} accessibilityLabel={`Dienst toevoegen op ${long}`} style={{ padding: 8, borderRadius: 10, backgroundColor: palette.palePrimary }}><Ionicons name="add" size={19} color={palette.primary} /></Pressable></View>
                 </View>
-                {dayShifts.map((shift) => <ShiftRow key={shift.id} shift={shift} employees={data.employees} onOpen={() => setSelectedShift(shift)} />)}
+                {dayShifts.map((shift) => <ShiftRow key={shift.id} shift={shift} employees={data.employees} settings={data.settings} onOpen={() => shift.source === 'manual' ? openManual(day, schedule.manualShifts?.find((item) => item.id === shift.id || (item.employeeId === shift.employeeId && item.startAt <= shift.startAt && item.endAt >= shift.endAt)) ?? shift) : setSelectedShift(shift)} />)}
                 {dayAbsences.length > 0 ? <View style={{ marginTop: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{dayAbsences.map((absence) => { const employee = data.employees.find((person) => person.id === absence.employeeId); return <Pill key={absence.id} text={`${employee?.firstName ?? 'Team'} · afwezig`} color="#C05F59" background="#F8EAE7" />; })}</View> : null}
               </Card>;
             })}
           </View>
         </> : data.employees.length ? <View style={{ marginTop: 22 }}><EmptyState title="Nog geen rooster voor deze week" detail="Genereer een concept op basis van de vaste werkdagen van je team." icon="calendar-outline" action={<PrimaryButton title="Genereer standaardrooster" icon="sparkles" onPress={planner.generateCurrentWeek} />} /></View>
           : <View style={{ marginTop: 22 }}><EmptyState title="Je team komt hier samen" detail="Voeg eerst medewerkers en hun vaste werktijden toe. Daarna maken we met één tik een weekrooster." /></View>}
+        {!schedule && data.employees.length ? <View style={{ marginTop: 17, gap: 9 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Of voeg een dienst toe op:</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{WEEKDAYS.map(({ id, short }) => { const day = new Date(weekStart); day.setDate(day.getDate() + id - 1); return <Pressable key={id} onPress={() => openManual(day)} style={{ borderRadius: 11, backgroundColor: palette.palePrimary, padding: 10 }}><Text style={{ color: palette.primaryDark, fontWeight: '800' }}>+ {short}</Text></Pressable>; })}</View></View> : null}
       </ScrollView>
 
-      {schedule && <RecommendationsSheet visible={Boolean(selectedShift)} onClose={() => setSelectedShift(undefined)} shift={selectedShift} employees={data.employees} scheduleShifts={schedule.shifts} absences={data.absences} onAssign={(employeeId) => { if (planner.assign(selectedShift!.id, employeeId)) setSelectedShift(undefined); }} onUsePlan={() => { if (selectedShift && planner.useCoveragePlan(selectedShift)) setSelectedShift(undefined); }} />}
+      {schedule && <RecommendationsSheet visible={Boolean(selectedShift)} onClose={() => setSelectedShift(undefined)} shift={selectedShift} employees={data.employees} scheduleShifts={schedule.shifts} absences={data.absences} settings={data.settings} onAssign={(employeeId) => { if (planner.assign(selectedShift!.id, employeeId)) setSelectedShift(undefined); }} onUsePlan={() => { if (selectedShift && planner.useCoveragePlan(selectedShift)) setSelectedShift(undefined); }} />}
+      <ManualShiftForm visible={Boolean(manualDay)} day={manualDay ?? weekStart} shift={manualShift} employees={data.employees} onClose={closeManual} onSave={planner.saveManualShift} onDelete={planner.removeManualShift} />
       {schedule ? <ExportSheet visible={exportOpen} onClose={() => setExportOpen(false)} schedule={schedule} employees={data.employees} weekStart={weekStart} shotRef={weekShot} exporting={exporting} onExport={exportPng} /> : null}
     </View>
   );
 }
 
-function ShiftRow({ shift, employees, onOpen }: { shift: Shift; employees: Employee[]; onOpen: () => void }) {
+function ShiftRow({ shift, employees, settings, onOpen }: { shift: Shift; employees: Employee[]; settings?: PlannerSettings; onOpen: () => void }) {
   const employee = employees.find((item) => item.id === shift.employeeId);
   const open = shift.employeeId === null;
+  const manual = shift.source === 'manual';
+  const breakMinutes = durationMinutes(shift) - workedMinutes(shift, settings);
   const content = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderColor: '#EEE6DC' }}>
     {employee ? <Avatar employee={employee} size={34} /> : <View style={{ width: 34, height: 34, borderRadius: 12, backgroundColor: '#FFF1DF', alignItems: 'center', justifyContent: 'center' }}><Ionicons name="person-add-outline" size={16} color="#AC6E2D" /></View>}
-    <View style={{ flex: 1 }}><Text style={{ color: open ? '#A6631D' : palette.ink, fontWeight: '800', fontSize: 13 }}>{employee?.displayName ?? 'Open dienst'}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{open ? 'Kies een passende vervanger' : employee?.role}</Text></View>
-    <View style={{ alignItems: 'flex-end', gap: 4 }}><Text style={{ color: palette.ink, fontSize: 12, fontWeight: '800' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text>{open ? <Text style={{ color: '#A6631D', fontSize: 10, fontWeight: '800' }}>OPEN · BEKIJK</Text> : null}</View>
+    <View style={{ flex: 1 }}><Text style={{ color: open ? '#A6631D' : palette.ink, fontWeight: '800', fontSize: 13 }}>{employee?.displayName ?? 'Open dienst'}{employee?.kind === 'intern' ? ' · stagiair' : ''}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{open ? 'Kies een passende vervanger' : manual ? 'Handmatig toegevoegd' : employee?.role}</Text></View>
+    <View style={{ alignItems: 'flex-end', gap: 4 }}><Text style={{ color: palette.ink, fontSize: 12, fontWeight: '800' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text>{breakMinutes > 0 ? <Text style={{ color: palette.muted, fontSize: 10 }}>{workedMinutes(shift, settings)} min gewerkt · {breakMinutes} min pauze</Text> : null}{open || manual ? <Text style={{ color: '#A6631D', fontSize: 10, fontWeight: '800' }}>{open ? 'OPEN · BEKIJK' : 'BEWERK'}</Text> : null}</View>
   </View>;
-  return open ? <Pressable onPress={onOpen} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>{content}</Pressable> : content;
+  return open || manual ? <Pressable onPress={onOpen} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>{content}</Pressable> : content;
 }
 
 function ExportSheet({ visible, onClose, schedule, employees, weekStart, shotRef, exporting, onExport }: { visible: boolean; onClose: () => void; schedule: Schedule; employees: Employee[]; weekStart: Date; shotRef: React.RefObject<ViewShotRef | null>; exporting: boolean; onExport: () => void }) {

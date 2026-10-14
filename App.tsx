@@ -5,15 +5,17 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AbsencesScreen, DashboardScreen, TeamScreen } from './src/screens';
 import { WeekScreen } from './src/WeekScreen';
+import { SettingsScreen } from './src/SettingsScreen';
 import { PlannerProvider, usePlanner } from './src/store';
 import { LoadingBlock, palette } from './src/ui';
 
-type TabId = 'home' | 'week' | 'team' | 'absences';
+type TabId = 'home' | 'week' | 'team' | 'absences' | 'settings';
 const tabs: { id: TabId; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; activeIcon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
   { id: 'home', label: 'Inzicht', icon: 'grid-outline', activeIcon: 'grid' },
   { id: 'week', label: 'Week', icon: 'calendar-outline', activeIcon: 'calendar' },
   { id: 'team', label: 'Team', icon: 'people-outline', activeIcon: 'people' },
   { id: 'absences', label: 'Afwezig', icon: 'time-outline', activeIcon: 'time' },
+  { id: 'settings', label: 'Instellingen', icon: 'settings-outline', activeIcon: 'settings' },
 ];
 
 export default function App() {
@@ -26,7 +28,7 @@ function AppContent() {
   if (!planner.ready) return <SafeAreaView style={{ flex: 1, backgroundColor: palette.page }}><LoadingBlock /></SafeAreaView>;
 
   const navigateFromHome = (target: 'week' | 'team' | 'absences') => setTab(target);
-  return <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: palette.page }}>
+  return <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}>
     <StatusBar style="dark" />
     <View style={{ flex: 1 }}>
       {planner.error ? <View style={{ backgroundColor: '#F8EAE7', padding: 9, paddingHorizontal: 16 }}><Text style={{ color: '#C05F59', fontSize: 12 }}>{planner.error}</Text></View> : null}
@@ -34,6 +36,7 @@ function AppContent() {
       {tab === 'week' ? <WeekScreen /> : null}
       {tab === 'team' ? <TeamScreen /> : null}
       {tab === 'absences' ? <AbsencesScreen /> : null}
+      {tab === 'settings' ? <SettingsScreen /> : null}
     </View>
     <View style={{ backgroundColor: palette.card, borderTopColor: palette.line, borderTopWidth: 1, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 5, flexDirection: 'row', justifyContent: 'space-around' }}>
       {tabs.map((item) => {

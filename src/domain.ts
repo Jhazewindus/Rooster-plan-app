@@ -3,6 +3,8 @@ export type AbsenceType = 'sick' | 'vacation' | 'dayOff' | 'specialLeave' | 'una
 export type ScheduleStatus = 'draft' | 'final' | 'published';
 
 export type TimeWindow = { startMinute: number; endMinute: number };
+export type BreakRule = { id: string; label: string; kind: 'day' | 'evening'; weekdays: Weekday[]; startMinute: number; endMinute: number };
+export type PlannerSettings = { breaks: BreakRule[] };
 
 export type Employee = {
   id: string;
@@ -13,6 +15,8 @@ export type Employee = {
   color: string;
   weeklyContractMinutes: number;
   active: boolean;
+  kind?: 'regular' | 'intern';
+  internship?: { startDate: string; endDate: string };
   availability: Partial<Record<Weekday, TimeWindow>>;
 };
 
@@ -42,12 +46,14 @@ export type Schedule = {
   createdAt: string;
   updatedAt: string;
   shifts: Shift[];
+  manualShifts?: Shift[];
 };
 
 export type PlannerData = {
   employees: Employee[];
   absences: Absence[];
   schedules: Schedule[];
+  settings?: PlannerSettings;
 };
 
 export type Recommendation = {
@@ -97,7 +103,7 @@ export function makeId(): string {
 }
 
 export function emptyPlannerData(): PlannerData {
-  return { employees: [], absences: [], schedules: [] };
+  return { employees: [], absences: [], schedules: [], settings: { breaks: [] } };
 }
 
 export function toIsoWeekday(date: Date): Weekday {

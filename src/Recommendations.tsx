@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Employee, Shift, formatTime } from './domain';
+import { Employee, PlannerSettings, Shift, formatTime } from './domain';
 import { recommendations, suggestCoverage } from './planner';
 import { Avatar, Card, palette, Pill, PrimaryButton, RoundIconButton } from './ui';
 
@@ -13,16 +13,17 @@ type Props = {
   employees: Employee[];
   scheduleShifts: Shift[];
   absences: Parameters<typeof recommendations>[3];
+  settings?: PlannerSettings;
   onAssign: (employeeId: string) => void;
   onUsePlan: () => void;
 };
 
-export function RecommendationsSheet({ visible, onClose, shift, employees, scheduleShifts, absences, onAssign, onUsePlan }: Props) {
+export function RecommendationsSheet({ visible, onClose, shift, employees, scheduleShifts, absences, settings, onAssign, onUsePlan }: Props) {
   const schedule = useMemo(() => shift ? ({
     id: 'suggestion-context', weekStart: shift.startAt, status: 'draft' as const,
     createdAt: shift.startAt, updatedAt: shift.startAt, shifts: scheduleShifts,
   }) : undefined, [shift, scheduleShifts]);
-  const options = shift && schedule ? recommendations(shift, schedule, employees, absences) : [];
+  const options = shift && schedule ? recommendations(shift, schedule, employees, absences, settings) : [];
   const coverage = shift && schedule ? suggestCoverage(shift, schedule, employees, absences) : undefined;
 
   return (

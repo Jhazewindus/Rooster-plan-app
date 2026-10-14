@@ -1,11 +1,15 @@
 import {
   Absence,
+  atMinute,
   CoveragePlan,
   CoverageSegment,
   Employee,
+  dateKey,
+  durationMinutes,
   makeId,
   mondayOf,
   PlannerData,
+  PlannerSettings,
   Recommendation,
   Schedule,
   Shift,
@@ -15,6 +19,44 @@ import {
 
 const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean => aStart < bEnd && bStart < aEnd;
 const asDate = (value: string): Date => new Date(value);
+
+export function canWorkOnDate(employee: Employee, date: Date): boolean {
+  if (!employee.active) return false;
+  if (employee.kind !== 'intern') return true;
+  const key = dateKey(date);
+  return Boolean(employee.internship && employee.internship.startDate <= key && key <= employee.internship.endDate);
+}
+
+export function hasRegularCoverage(start: Date, end: Date, shifts: Shift[], employees: Employee[]): boolean {
+  const regularIds = new Set(employees.filter((employee) => employee.active && employee.kind !== 'intern').map((employee) => employee.id));
+  const intervals = shifts.filter((shift) => shift.employeeId && regularIds.has(shift.employeeId) && overlaps(start, end, asDate(shift.startAt), asDate(shift.endAt)))
+    .map((shift) => [asDate(shift.startAt), asDate(shift.endAt)] as const)
+    .sort((a, b) => a[0].getTime() - b[0].getTime());
+  let cursor = start.getTime();
+  for (const [from, until] of intervals) {
+    if (from.getTime() > cursor) return false;
+    cursor = Math.max(cursor, until.getTime());
+    if (cursor >= end.getTime()) return true;
+  }
+  return false;
+}
+
+export function workedMinutes(shift: Shift, settings?: PlannerSettings): number {
+  if (!shift.employeeId) return 0;
+  const start = asDate(shift.startAt);
+  const end = asDate(shift.endAt);
+  const intervals = (settings?.breaks ?? [])
+    .filter((rule) => rule.weekdays.includes(toIsoWeekday(start)) && rule.endMinute > rule.startMinute)
+    .map((rule) => [Math.max(start.getTime(), atMinute(start, rule.startMinute).getTime()), Math.min(end.getTime(), atMinute(start, rule.endMinute).getTime())] as const)
+    .filter(([from, until]) => until > from).sort((a, b) => a[0] - b[0]);
+  let deducted = 0;
+  let coveredUntil = 0;
+  for (const [from, until] of intervals) {
+    deducted += Math.max(0, until - Math.max(from, coveredUntil));
+    coveredUntil = Math.max(coveredUntil, until);
+  }
+  return Math.max(0, durationMinutes(shift) - Math.round(deducted / 60_000));
+}
 
 function subtract(blockStart: Date, blockEnd: Date, window: [Date, Date]): [Date, Date][] {
   if (!overlaps(window[0], window[1], blockStart, blockEnd)) return [window];
@@ -62,15 +104,48 @@ function orderShifts(a: Shift, b: Shift): number {
   return (a.employeeId ?? '').localeCompare(b.employeeId ?? '');
 }
 
-export function generateWeek(starting: Date, employees: Employee[], absences: Absence[] = []): Schedule {
+function preserveValidReplacements(shifts: Shift[], previous: Schedule, employees: Employee[], absences: Absence[]): Shift[] {
+  const assigned = shifts.filter((shift) => shift.employeeId);
+  const result: Shift[] = [...assigned];
+  const previousReplacements = previous.shifts.filter((shift) => shift.source === 'replacement' && shift.employeeId && shift.originalEmployeeId)
+    .sort(orderShifts);
+  for (const open of shifts.filter((shift) => !shift.employeeId).sort(orderShifts)) {
+    const openStart = asDate(open.startAt).getTime();
+    const openEnd = asDate(open.endAt).getTime();
+    let cursor = openStart;
+    for (const candidate of previousReplacements.filter((shift) => shift.originalEmployeeId === open.originalEmployeeId)) {
+      const from = Math.max(cursor, openStart, asDate(candidate.startAt).getTime());
+      const until = Math.min(openEnd, asDate(candidate.endAt).getTime());
+      if (until <= from) continue;
+      const employee = employees.find((item) => item.id === candidate.employeeId);
+      const start = new Date(from);
+      const end = new Date(until);
+      if (!employee || !canWorkOnDate(employee, start)) continue;
+      if (absences.some((absence) => absence.employeeId === employee.id && overlaps(start, end, asDate(absence.startAt), asDate(absence.endAt)))) continue;
+      if (assigned.some((shift) => shift.employeeId === employee.id && overlaps(start, end, asDate(shift.startAt), asDate(shift.endAt)))) continue;
+      if (employee.kind === 'intern' && !hasRegularCoverage(start, end, assigned, employees)) continue;
+      if (cursor < from) result.push({ ...open, id: makeId(), startAt: new Date(cursor).toISOString(), endAt: start.toISOString() });
+      const restored: Shift = { ...candidate, id: from === asDate(candidate.startAt).getTime() && until === asDate(candidate.endAt).getTime() ? candidate.id : makeId(), startAt: start.toISOString(), endAt: end.toISOString() };
+      result.push(restored);
+      assigned.push(restored);
+      cursor = until;
+      if (cursor >= openEnd) break;
+    }
+    if (cursor < openEnd) result.push({ ...open, id: cursor === openStart ? open.id : makeId(), startAt: new Date(cursor).toISOString() });
+  }
+  return result.sort(orderShifts);
+}
+
+export function generateWeek(starting: Date, employees: Employee[], absences: Absence[] = [], extraSupervisors: Shift[] = []): Schedule {
   const weekStart = mondayOf(starting);
   const shifts: Shift[] = [];
-  for (const employee of employees.filter((item) => item.active)) {
+  for (const employee of employees.filter((item) => item.active).sort((a, b) => Number(a.kind === 'intern') - Number(b.kind === 'intern'))) {
     for (const [weekdayText, window] of Object.entries(employee.availability)) {
       const weekday = Number(weekdayText);
       if (weekday < 1 || weekday > 7 || !window || window.endMinute <= window.startMinute) continue;
       const day = new Date(weekStart);
       day.setDate(day.getDate() + weekday - 1);
+      if (!canWorkOnDate(employee, day)) continue;
       const start = new Date(day);
       start.setHours(Math.floor(window.startMinute / 60), window.startMinute % 60, 0, 0);
       const end = new Date(day);
@@ -81,6 +156,7 @@ export function generateWeek(starting: Date, employees: Employee[], absences: Ab
       };
       const matchingAbsences = absences.filter((absence) =>
         absence.employeeId === employee.id && overlaps(start, end, asDate(absence.startAt), asDate(absence.endAt)));
+      if (employee.kind === 'intern' && !hasRegularCoverage(start, end, [...shifts, ...extraSupervisors], employees)) continue;
       shifts.push(...splitShift(base, matchingAbsences));
     }
   }
@@ -89,40 +165,87 @@ export function generateWeek(starting: Date, employees: Employee[], absences: Ab
   return { id: makeId(), weekStart: weekStart.toISOString(), status: 'draft', createdAt: now, updatedAt: now, shifts };
 }
 
-export function applyAbsence(schedule: Schedule, absence: Absence): Schedule {
-  const absenceStart = asDate(absence.startAt);
-  const absenceEnd = asDate(absence.endAt);
-  const shifts = schedule.shifts.flatMap((shift) => {
-    if (shift.employeeId !== absence.employeeId || !overlaps(asDate(shift.startAt), asDate(shift.endAt), absenceStart, absenceEnd)) return [shift];
-    return splitShift(shift, [absence]);
-  }).sort(orderShifts);
-  return { ...schedule, shifts, updatedAt: new Date().toISOString() };
+/** Rebuild generated shifts, retaining the user's original manual entries. */
+export function rebuildSchedule(existing: Schedule, employees: Employee[], absences: Absence[]): Schedule {
+  const manualShifts = existing.manualShifts ?? [];
+  const eligibleManual = manualShifts.filter((shift) => {
+    const employee = employees.find((item) => item.id === shift.employeeId);
+    return employee && canWorkOnDate(employee, asDate(shift.startAt));
+  }).flatMap((shift) => splitShift(shift, absences.filter((absence) => absence.employeeId === shift.employeeId)));
+  const regularManual = eligibleManual.filter((shift) => employees.some((employee) => employee.id === shift.employeeId && employee.kind !== 'intern'));
+  const preliminary = generateWeek(asDate(existing.weekStart), employees, absences, regularManual);
+  const replacementSupervisors = existing.shifts.filter((shift) => shift.source === 'replacement' && shift.employeeId && employees.some((employee) => employee.id === shift.employeeId && employee.active && employee.kind !== 'intern'))
+    .filter((shift) => !absences.some((absence) => absence.employeeId === shift.employeeId && overlaps(asDate(shift.startAt), asDate(shift.endAt), asDate(absence.startAt), asDate(absence.endAt))))
+    .filter((shift) => !preliminary.shifts.some((item) => item.employeeId === shift.employeeId && overlaps(asDate(item.startAt), asDate(item.endAt), asDate(shift.startAt), asDate(shift.endAt))));
+  const base = generateWeek(asDate(existing.weekStart), employees, absences, [...regularManual, ...replacementSupervisors]);
+  const visibleManual = eligibleManual.filter((shift) => {
+    if (!shift.employeeId) return true;
+    const employee = employees.find((item) => item.id === shift.employeeId);
+    if (base.shifts.some((item) => item.employeeId === shift.employeeId && overlaps(asDate(item.startAt), asDate(item.endAt), asDate(shift.startAt), asDate(shift.endAt)))) return false;
+    return employee?.kind !== 'intern' || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), [...base.shifts, ...regularManual], employees);
+  });
+  const rebuilt = preserveValidReplacements([...base.shifts, ...visibleManual], existing, employees, absences);
+  const shifts = rebuilt.filter((shift) => {
+    const intern = employees.find((employee) => employee.id === (shift.employeeId ?? shift.originalEmployeeId) && employee.kind === 'intern');
+    return !intern || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), rebuilt, employees);
+  });
+  return { ...existing, status: 'draft', updatedAt: new Date().toISOString(), manualShifts, shifts };
 }
 
-export function recommendations(openShift: Shift, schedule: Schedule, employees: Employee[], absences: Absence[]): Recommendation[] {
+export function generateScheduleRange(starting: Date, months: 1 | 6 | 12, employees: Employee[], absences: Absence[], existing: Schedule[]): Schedule[] {
+  const start = mondayOf(starting);
+  const end = new Date(start);
+  end.setDate(1);
+  end.setMonth(end.getMonth() + months);
+  const lastDayOfTargetMonth = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+  end.setDate(Math.min(start.getDate(), lastDayOfTargetMonth));
+  const generated = new Map<string, Schedule>();
+  for (const schedule of existing) generated.set(dateKey(asDate(schedule.weekStart)), schedule);
+  for (const day = new Date(start); day < end; day.setDate(day.getDate() + 7)) {
+    const key = dateKey(day);
+    const current = generated.get(key);
+    generated.set(key, current ? rebuildSchedule(current, employees, absences) : generateWeek(day, employees, absences));
+  }
+  return [...generated.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+export function rebuildAffectedSchedules(current: PlannerData, absences: Absence[], changed: Absence[]): Schedule[] {
+  return current.schedules.map((schedule) => {
+    const start = asDate(schedule.weekStart);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    return changed.some((absence) => asDate(absence.startAt) < end && asDate(absence.endAt) > start)
+      ? rebuildSchedule(schedule, current.employees, absences) : schedule;
+  });
+}
+
+export function recommendations(openShift: Shift, schedule: Schedule, employees: Employee[], absences: Absence[], settings?: PlannerSettings): Recommendation[] {
   const activeEmployees = employees.filter((employee) => employee.active);
   const minutesByEmployee = new Map<string, number>();
   for (const shift of schedule.shifts) {
-    if (shift.employeeId) minutesByEmployee.set(shift.employeeId, (minutesByEmployee.get(shift.employeeId) ?? 0) + Math.round((asDate(shift.endAt).getTime() - asDate(shift.startAt).getTime()) / 60_000));
+    if (shift.employeeId) minutesByEmployee.set(shift.employeeId, (minutesByEmployee.get(shift.employeeId) ?? 0) + workedMinutes(shift, settings));
   }
   const leastMinutes = activeEmployees.length === 0 ? 0 : Math.min(...activeEmployees.map((employee) => minutesByEmployee.get(employee.id) ?? 0));
   const targetRole = employees.find((employee) => employee.id === openShift.originalEmployeeId)?.role;
   const openStart = asDate(openShift.startAt);
   const openEnd = asDate(openShift.endAt);
-  const duration = Math.round((openEnd.getTime() - openStart.getTime()) / 60_000);
+  const duration = durationMinutes(openShift);
 
   return activeEmployees.map((employee) => {
     const absent = absences.some((absence) => absence.employeeId === employee.id && overlaps(openStart, openEnd, asDate(absence.startAt), asDate(absence.endAt)));
     const conflict = schedule.shifts.some((shift) => shift.id !== openShift.id && shift.employeeId === employee.id && overlaps(openStart, openEnd, asDate(shift.startAt), asDate(shift.endAt)));
+    const outsideStage = !canWorkOnDate(employee, openStart);
+    const noSupervisor = employee.kind === 'intern' && !hasRegularCoverage(openStart, openEnd, schedule.shifts, employees);
     const scheduled = minutesByEmployee.get(employee.id) ?? 0;
-    const projected = scheduled + duration;
+    const projected = scheduled + workedMinutes({ ...openShift, employeeId: employee.id }, settings);
     const exceedsContract = employee.weeklyContractMinutes > 0 && projected > employee.weeklyContractMinutes;
     const weekday = toIsoWeekday(openStart);
     const usualDay = Boolean(employee.availability[weekday]);
     let score = 0;
     const reasons: string[] = [];
 
-    if (absent) { score -= 100; reasons.push('Afwezig op dit moment'); }
+    if (outsideStage) { score -= 100; reasons.push('Buiten de stageperiode'); }
+    else if (noSupervisor) { score -= 100; reasons.push('Geen begeleidende medewerker'); }
+    else if (absent) { score -= 100; reasons.push('Afwezig op dit moment'); }
     else if (conflict) { score -= 100; reasons.push('Heeft al een overlappende dienst'); }
     else { score += 40; reasons.push('Beschikbaar, geen roosterconflict'); }
     if (usualDay) { score += 20; reasons.push('Werkt normaal op deze dag'); }
@@ -140,7 +263,7 @@ export function recommendations(openShift: Shift, schedule: Schedule, employees:
       reasons.push('Extra uren eerlijk verdeeld');
     }
 
-    return { employee, score, canCover: !absent && !conflict, projectedWeeklyMinutes: projected, exceedsContract, reasons };
+    return { employee, score, canCover: !outsideStage && !noSupervisor && !absent && !conflict, projectedWeeklyMinutes: projected, exceedsContract, reasons };
   }).sort((a, b) => Number(b.canCover) - Number(a.canCover) || b.score - a.score || a.employee.displayName.localeCompare(b.employee.displayName));
 }
 
@@ -150,7 +273,7 @@ export function suggestCoverage(openShift: Shift, schedule: Schedule, employees:
   const weekday = toIsoWeekday(openStart);
   const possible: { employee: Employee; start: Date; end: Date }[] = [];
 
-  for (const employee of employees.filter((item) => item.active)) {
+  for (const employee of employees.filter((item) => canWorkOnDate(item, openStart) && (item.kind !== 'intern' || hasRegularCoverage(openStart, openEnd, schedule.shifts, employees)))) {
     const normal = employee.availability[weekday];
     const windows: [Date, Date][] = [];
     if (normal) {
@@ -204,17 +327,13 @@ export function assignReplacement(schedule: Schedule, shiftId: string, employeeI
   };
 }
 
-export function hoursForEmployee(schedule: Schedule, employeeId: string): number {
-  return schedule.shifts.filter((shift) => shift.employeeId === employeeId).reduce((total, shift) => total + Math.max(0, asDate(shift.endAt).getTime() - asDate(shift.startAt).getTime()) / 3_600_000, 0);
+export function hoursForEmployee(schedule: Schedule, employeeId: string, settings?: PlannerSettings): number {
+  return schedule.shifts.filter((shift) => shift.employeeId === employeeId).reduce((total, shift) => total + workedMinutes(shift, settings), 0) / 60;
 }
 
 export function currentSchedule(data: PlannerData, weekStart: Date): Schedule | undefined {
   const key = dateKey(mondayOf(weekStart));
   return data.schedules.find((schedule) => dateKey(new Date(schedule.weekStart)) === key);
-}
-
-function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export function windowFromMinutes(startMinute: number, endMinute: number): TimeWindow {

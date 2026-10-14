@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AbsenceForm } from './AbsenceForm';
 import { EmployeeForm } from './EmployeeForm';
 import { Absence, ABSENCE_COLOR, ABSENCE_LABEL, Employee, formatTime, WEEKDAYS } from './domain';
-import { currentSchedule, hoursForEmployee } from './planner';
+import { currentSchedule, hoursForEmployee, workedMinutes } from './planner';
 import { usePlanner } from './store';
 import { Avatar, Card, EmptyState, PageHeading, Pill, PrimaryButton, SectionTitle, palette, SecondaryButton } from './ui';
 
@@ -16,8 +16,8 @@ export function DashboardScreen({ onNavigate }: { onNavigate: (tab: 'week' | 'te
   const todayShifts = todaySchedule?.shifts.filter((shift) => sameDay(new Date(shift.startAt), today)) ?? [];
   const openShifts = todayShifts.filter((shift) => !shift.employeeId);
   const absencesToday = data.absences.filter((absence) => new Date(absence.startAt) <= endOfDay(today) && new Date(absence.endAt) > startOfDay(today));
-  const totalMinutes = todaySchedule?.shifts.reduce((sum, shift) => sum + (shift.employeeId ? (new Date(shift.endAt).getTime() - new Date(shift.startAt).getTime()) / 60_000 : 0), 0) ?? 0;
-  const hourAlerts = data.employees.filter((employee) => employee.active && employee.weeklyContractMinutes > 0 && todaySchedule && hoursForEmployee(todaySchedule, employee.id) > employee.weeklyContractMinutes / 60);
+  const totalMinutes = todayShifts.reduce((sum, shift) => sum + workedMinutes(shift, data.settings), 0);
+  const hourAlerts = data.employees.filter((employee) => employee.active && employee.weeklyContractMinutes > 0 && todaySchedule && hoursForEmployee(todaySchedule, employee.id, data.settings) > employee.weeklyContractMinutes / 60);
 
   return <ScrollView style={{ flex: 1, backgroundColor: palette.page }} contentContainerStyle={{ padding: 19, paddingBottom: 30 }}>
     <PageHeading eyebrow={greeting()} title="Jouw planning" subtitle={new Intl.DateTimeFormat('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)} right={<Image source={require('../assets/icon.png')} accessibilityLabel="Een hond en een kat" resizeMode="contain" style={{ width: 58, height: 58 }} />} />
@@ -58,7 +58,7 @@ export function DashboardScreen({ onNavigate }: { onNavigate: (tab: 'week' | 'te
 
       {hourAlerts.length ? <>
         <SectionTitle title="Uren om op te letten" />
-        <Card style={{ gap: 11 }}>{hourAlerts.map((employee) => <View key={employee.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}><Avatar employee={employee} size={30} /><Text style={{ flex: 1, color: palette.ink, fontSize: 12, fontWeight: '700' }}>{employee.displayName}</Text><Pill text={`${formatHours(hoursForEmployee(todaySchedule!, employee.id) * 60)} / ${formatHours(employee.weeklyContractMinutes)} u`} color="#A6631D" background="#FFF3E2" /></View>)}</Card>
+        <Card style={{ gap: 11 }}>{hourAlerts.map((employee) => <View key={employee.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}><Avatar employee={employee} size={30} /><Text style={{ flex: 1, color: palette.ink, fontSize: 12, fontWeight: '700' }}>{employee.displayName}</Text><Pill text={`${formatHours(hoursForEmployee(todaySchedule!, employee.id, data.settings) * 60)} / ${formatHours(employee.weeklyContractMinutes)} u`} color="#A6631D" background="#FFF3E2" /></View>)}</Card>
       </> : null}
 
       <SectionTitle title="Snel naar" />
@@ -80,25 +80,29 @@ function QuickLink({ icon, title, onPress }: { icon: React.ComponentProps<typeof
 }
 
 export function TeamScreen() {
-  const { data, addEmployee } = usePlanner();
+  const { data, addEmployee, updateEmployee } = usePlanner();
   const [formVisible, setFormVisible] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | undefined>();
   const employees = data.employees.filter((employee) => employee.active);
+  const openNew = () => { setSelectedEmployee(undefined); setFormVisible(true); };
+  const closeForm = () => { setFormVisible(false); setSelectedEmployee(undefined); };
   return <View style={{ flex: 1, backgroundColor: palette.page }}>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
-      <PageHeading eyebrow="Jouw mensen" title="Medewerkers" subtitle={`${employees.length} actieve ${employees.length === 1 ? 'medewerker' : 'medewerkers'}`} right={<Pressable onPress={() => setFormVisible(true)} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.primary }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
-      {employees.length === 0 ? <EmptyState title="Nog geen teamleden" detail="Voeg je vaste team toe. De normale werkdagen en uren hoef je daarna niet steeds opnieuw in te voeren." icon="people-outline" action={<PrimaryButton title="Medewerker toevoegen" icon="person-add" onPress={() => setFormVisible(true)} />} /> : <View style={{ gap: 10 }}>
-        {employees.map((employee) => <TeamMember key={employee.id} employee={employee} />)}
-        <View style={{ marginTop: 7 }}><SecondaryButton title="Nog iemand toevoegen" icon="add" onPress={() => setFormVisible(true)} /></View>
+      <PageHeading eyebrow="Jouw mensen" title="Medewerkers" subtitle={`${employees.length} actieve ${employees.length === 1 ? 'medewerker' : 'medewerkers'}`} right={<Pressable onPress={openNew} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.primary }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
+      {employees.length > 0 ? <Text style={{ color: palette.muted, fontSize: 12, marginBottom: 13 }}>Team gewijzigd? Open Weekrooster en genereer de gewenste weken opnieuw.</Text> : null}
+      {employees.length === 0 ? <EmptyState title="Nog geen teamleden" detail="Voeg je vaste team toe. De normale werkdagen en uren hoef je daarna niet steeds opnieuw in te voeren." icon="people-outline" action={<PrimaryButton title="Medewerker toevoegen" icon="person-add" onPress={openNew} />} /> : <View style={{ gap: 10 }}>
+        {employees.map((employee) => <TeamMember key={employee.id} employee={employee} onEdit={() => { setSelectedEmployee(employee); setFormVisible(true); }} />)}
+        <View style={{ marginTop: 7 }}><SecondaryButton title="Nog iemand toevoegen" icon="add" onPress={openNew} /></View>
       </View>}
     </ScrollView>
-    <EmployeeForm visible={formVisible} onClose={() => setFormVisible(false)} onSave={addEmployee} employeeCount={data.employees.length} />
+    <EmployeeForm visible={formVisible} employee={selectedEmployee} onClose={closeForm} onSave={(input) => selectedEmployee ? updateEmployee(selectedEmployee.id, input) : addEmployee(input)} employeeCount={data.employees.length} />
   </View>;
 }
 
-function TeamMember({ employee }: { employee: Employee }) {
+function TeamMember({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
   const weekDays = WEEKDAYS.filter(({ id }) => employee.availability[id]);
   return <Card style={{ padding: 14 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}><Avatar employee={employee} size={45} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontSize: 15, fontWeight: '800' }}>{employee.displayName}</Text><Text style={{ color: palette.muted, fontSize: 12, marginTop: 3 }}>{employee.role}</Text></View><Pill text={`${employee.weeklyContractMinutes / 60} U`} /></View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}><Avatar employee={employee} size={45} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontSize: 15, fontWeight: '800' }}>{employee.displayName}{employee.kind === 'intern' ? ' · Stagiair' : ''}</Text><Text style={{ color: palette.muted, fontSize: 12, marginTop: 3 }}>{employee.role}{employee.internship ? ` · ${employee.internship.startDate} t/m ${employee.internship.endDate}` : ''}</Text></View><Pill text={`${employee.weeklyContractMinutes / 60} U`} /><Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel={`${employee.displayName} bewerken`} style={{ padding: 10 }}><Ionicons name="create-outline" size={21} color={palette.primary} /></Pressable></View>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 13 }}>{weekDays.map(({ id, short }) => { const window = employee.availability[id]!; return <View key={id} style={{ borderRadius: 10, backgroundColor: '#F4F5F8', paddingHorizontal: 8, paddingVertical: 6 }}><Text style={{ color: palette.ink, fontSize: 10, fontWeight: '800' }}>{short} {formatMinutes(window.startMinute)}–{formatMinutes(window.endMinute)}</Text></View>; })}</View>
   </Card>;
 }
@@ -106,24 +110,32 @@ function TeamMember({ employee }: { employee: Employee }) {
 export function AbsencesScreen() {
   const planner = usePlanner();
   const [formVisible, setFormVisible] = useState(false);
+  const [selectedAbsence, setSelectedAbsence] = useState<Absence | undefined>();
+  const openNew = () => { setSelectedAbsence(undefined); setFormVisible(true); };
+  const closeForm = () => { setFormVisible(false); setSelectedAbsence(undefined); };
   const sortedAbsences = useMemo(() => [...planner.data.absences].sort((a, b) => a.startAt.localeCompare(b.startAt)), [planner.data.absences]);
   return <View style={{ flex: 1, backgroundColor: palette.page }}>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 28 }}>
-      <PageHeading eyebrow="Uitzonderingen" title="Afwezigheid" subtitle="Houd beschikbaarheid actueel." right={<Pressable disabled={!planner.data.employees.length} onPress={() => setFormVisible(true)} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: planner.data.employees.length ? palette.primary : '#C9CDE1' }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
-      {sortedAbsences.length === 0 ? <EmptyState title="Iedereen is beschikbaar" detail="Ziekte, vakantie of een vrije dag? Voeg het toe en open diensten verschijnen vanzelf." icon="sunny-outline" action={planner.data.employees.length ? <PrimaryButton title="Afwezigheid melden" icon="add" onPress={() => setFormVisible(true)} /> : undefined} /> : <View style={{ gap: 9 }}>{sortedAbsences.map((absence) => <AbsenceRow key={absence.id} absence={absence} employee={planner.data.employees.find((item) => item.id === absence.employeeId)} />)}</View>}
+      <PageHeading eyebrow="Uitzonderingen" title="Afwezigheid" subtitle="Houd beschikbaarheid actueel." right={<Pressable disabled={!planner.data.employees.length} onPress={openNew} style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: planner.data.employees.length ? palette.primary : '#C9CDE1' }}><Ionicons name="add" size={24} color="#FFF" /></Pressable>} />
+      {sortedAbsences.length > 0 ? <Text style={{ color: palette.muted, fontSize: 12, marginBottom: 13 }}>Bij bewerken of verwijderen worden betrokken weken hersteld. Handmatige diensten en nog geldige vervangers blijven behouden.</Text> : null}
+      {sortedAbsences.length === 0 ? <EmptyState title="Iedereen is beschikbaar" detail="Ziekte, vakantie of een vrije dag? Voeg het toe en open diensten verschijnen vanzelf." icon="sunny-outline" action={planner.data.employees.length ? <PrimaryButton title="Afwezigheid melden" icon="add" onPress={openNew} /> : undefined} /> : <View style={{ gap: 9 }}>{sortedAbsences.map((absence) => <AbsenceRow key={absence.id} absence={absence} employee={planner.data.employees.find((item) => item.id === absence.employeeId)} onEdit={() => { setSelectedAbsence(absence); setFormVisible(true); }} onDelete={() => Alert.alert('Afwezigheid verwijderen?', 'Het rooster wordt hersteld. Handmatige diensten en vervangers voor nog open diensten blijven behouden.', [{ text: 'Annuleren', style: 'cancel' }, { text: 'Verwijderen', style: 'destructive', onPress: () => planner.removeAbsence(absence.id) }])} />)}</View>}
     </ScrollView>
-    <AbsenceForm visible={formVisible} employees={planner.data.employees.filter((employee) => employee.active)} onClose={() => setFormVisible(false)} onSave={(absence) => planner.addAbsence(absence)} />
+    <AbsenceForm visible={formVisible} absence={selectedAbsence} employees={planner.data.employees.filter((employee) => employee.active)} onClose={closeForm} onSave={(input) => selectedAbsence ? planner.updateAbsence(selectedAbsence.id, input) : planner.addAbsence(input)} />
   </View>;
 }
 
-function AbsenceRow({ absence, employee }: { absence: Absence; employee?: Employee }) {
+function AbsenceRow({ absence, employee, onEdit, onDelete }: { absence: Absence; employee?: Employee; onEdit: () => void; onDelete: () => void }) {
   const color = ABSENCE_COLOR[absence.type];
-  const date = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(absence.startAt));
+  const dateFormat = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
   const start = new Date(absence.startAt); const end = new Date(absence.endAt);
   const partial = start.getHours() !== 0 || start.getMinutes() !== 0 || end.getHours() !== 0 || end.getMinutes() !== 0;
+  const lastDay = new Date(end); if (!partial) lastDay.setDate(lastDay.getDate() - 1);
+  const date = `${dateFormat.format(start)}${sameDay(start, lastDay) ? '' : ` t/m ${dateFormat.format(lastDay)}`}`;
   return <Card style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11 }}>
     <View style={{ width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: `${color}18` }}><Ionicons name={absence.type === 'sick' ? 'medkit-outline' : absence.type === 'vacation' ? 'airplane-outline' : 'calendar-outline'} size={18} color={color} /></View>
     <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 13 }}>{employee?.displayName ?? 'Onbekende medewerker'} · {ABSENCE_LABEL[absence.type]}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 4 }}>{date}{partial ? ` · ${formatTime(absence.startAt)}–${formatTime(absence.endAt)}` : ' · Hele dag'}</Text>{absence.notes ? <Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{absence.notes}</Text> : null}</View>
+    <Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel="Afwezigheid bewerken" style={{ padding: 8 }}><Ionicons name="create-outline" size={21} color={palette.primary} /></Pressable>
+    <Pressable onPress={onDelete} accessibilityRole="button" accessibilityLabel="Afwezigheid verwijderen" style={{ padding: 8 }}><Ionicons name="trash-outline" size={20} color={palette.red} /></Pressable>
   </Card>;
 }
 

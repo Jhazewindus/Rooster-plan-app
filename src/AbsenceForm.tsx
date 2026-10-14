@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Absence, AbsenceType, ABSENCE_COLOR, ABSENCE_LABEL, Employee } from './domain';
 import { Field, palette, PrimaryButton, RoundIconButton, TimeField } from './ui';
 import { parseTimeInput } from './timeInput';
+import { parseDateKey } from './dateInput';
 
-type Props = { visible: boolean; onClose: () => void; employees: Employee[]; onSave: (absence: Omit<Absence, 'id'>) => void };
+type Props = { visible: boolean; onClose: () => void; employees: Employee[]; onSave: (absence: Omit<Absence, 'id'>) => void; absence?: Absence };
 const TYPES: AbsenceType[] = ['sick', 'vacation', 'dayOff', 'specialLeave', 'unavailable', 'other'];
 
-export function AbsenceForm({ visible, onClose, employees, onSave }: Props) {
+export function AbsenceForm({ visible, onClose, employees, onSave, absence }: Props) {
   const [employeeId, setEmployeeId] = useState(employees[0]?.id ?? '');
   const [type, setType] = useState<AbsenceType>('sick');
   const [startDate, setStartDate] = useState(todayKey());
@@ -19,11 +20,26 @@ export function AbsenceForm({ visible, onClose, employees, onSave }: Props) {
   const [allDay, setAllDay] = useState(true);
   const [notes, setNotes] = useState('');
 
-  const close = () => { setNotes(''); setStartDate(todayKey()); setEndDate(todayKey()); onClose(); };
+  useEffect(() => {
+    if (!visible) return;
+    const allDayAbsence = absence ? isAllDayAbsence(absence) : true;
+    setEmployeeId(absence?.employeeId ?? employees[0]?.id ?? '');
+    setType(absence?.type ?? 'sick');
+    setStartDate(absence ? localDateKey(new Date(absence.startAt)) : todayKey());
+    const end = absence ? new Date(absence.endAt) : new Date();
+    if (allDayAbsence && absence) end.setDate(end.getDate() - 1);
+    setEndDate(localDateKey(end));
+    setStartTime(absence && !allDayAbsence ? localTime(new Date(absence.startAt)) : '07:00');
+    setEndTime(absence && !allDayAbsence ? localTime(new Date(absence.endAt)) : '17:00');
+    setAllDay(allDayAbsence);
+    setNotes(absence?.notes ?? '');
+  }, [visible, absence, employees[0]?.id]);
+
+  const close = () => onClose();
   const save = () => {
     if (!employeeId) { Alert.alert('Medewerker kiezen', 'Voeg eerst een medewerker toe.'); return; }
-    const startDay = parseDate(startDate);
-    const endDay = parseDate(endDate);
+    const startDay = parseDateKey(startDate);
+    const endDay = parseDateKey(endDate);
     if (!startDay || !endDay || endDay < startDay) { Alert.alert('Datum controleren', 'Vul een geldige start- en einddatum in.'); return; }
     let startAt: Date;
     let endAt: Date;
@@ -47,7 +63,7 @@ export function AbsenceForm({ visible, onClose, employees, onSave }: Props) {
       <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}>
         <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 9, paddingBottom: 10 }}>
-            <View><Text style={{ color: palette.muted, fontWeight: '700', fontSize: 12 }}>BESCHIKBAARHEID</Text><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 23, marginTop: 3 }}>Afwezigheid melden</Text></View>
+            <View><Text style={{ color: palette.muted, fontWeight: '700', fontSize: 12 }}>BESCHIKBAARHEID</Text><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 23, marginTop: 3 }}>{absence ? 'Afwezigheid bewerken' : 'Afwezigheid melden'}</Text></View>
             <RoundIconButton icon="close" accessibilityLabel="Sluiten" onPress={close} />
           </View>
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ flexGrow: 1, padding: 18, paddingBottom: 48, gap: 15 }}>
@@ -86,7 +102,7 @@ export function AbsenceForm({ visible, onClose, employees, onSave }: Props) {
               </View> : null}
               <Field label="Notitie (optioneel)" value={notes} onChangeText={setNotes} placeholder="Voeg eventueel context toe" multiline numberOfLines={3} style={{ minHeight: 78, paddingTop: 12, textAlignVertical: 'top' }} />
             </View>
-            <PrimaryButton title="Afwezigheid opslaan" onPress={save} icon="checkmark" />
+            <PrimaryButton title={absence ? 'Wijzigingen opslaan' : 'Afwezigheid opslaan'} onPress={save} icon="checkmark" />
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -99,10 +115,10 @@ function todayKey(): string {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 }
 
-function parseDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  if (date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return null;
-  return date;
+function localDateKey(value: Date): string { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
+function localTime(value: Date): string { return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`; }
+function isAllDayAbsence(absence: Absence): boolean {
+  const start = new Date(absence.startAt);
+  const end = new Date(absence.endAt);
+  return start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0 && end > start;
 }
