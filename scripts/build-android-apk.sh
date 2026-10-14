@@ -25,14 +25,14 @@ aapt="$build_tools/aapt"
 
 npm --prefix "$project_root" run typecheck
 npm --prefix "$project_root" run test:core
-"$project_root/android/gradlew" --project-dir "$project_root/android" :app:assembleRelease
+NODE_ENV=production "$project_root/android/gradlew" --project-dir "$project_root/android" :app:assembleRelease
 
 release_apk="$project_root/android/app/build/outputs/apk/release/app-release.apk"
 aligned_apk="$project_root/dist/RoosterPlan-aligned.apk"
 signed_apk="$project_root/dist/RoosterPlan.apk"
 mkdir -p "$project_root/dist"
 rm -f "$aligned_apk" "$signed_apk"
-"$zipalign" -f -p 4 "$release_apk" "$aligned_apk"
+"$zipalign" -f -P 16 4 "$release_apk" "$aligned_apk"
 "$apksigner" sign \
   --ks "$ROOSTERPLAN_KEYSTORE_PATH" \
   --ks-key-alias "$key_alias" \
@@ -42,6 +42,7 @@ rm -f "$aligned_apk" "$signed_apk"
   "$aligned_apk"
 rm -f "$aligned_apk"
 
+"$zipalign" -c -P 16 4 "$signed_apk"
 "$apksigner" verify --verbose --print-certs "$signed_apk"
-"$aapt" dump badging "$signed_apk" | head -n 1
+"$aapt" dump badging "$signed_apk" | sed -n '1p'
 sha256sum "$signed_apk"

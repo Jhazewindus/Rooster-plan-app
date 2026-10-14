@@ -2,6 +2,10 @@
 
 RoosterPlan is a Dutch-language Android tablet app for planning a small animal-care team. Its warm dog-and-cat theme fits a pet boarding setting, while the roster features work for any small team. App data stays on the tablet; it does not need a website, account, or permanent hosting.
 
+## Install on a tablet
+
+Download [RoosterPlan.apk](https://github.com/Jhazewindus/Rooster-plan-app/raw/refs/heads/apk-downloads/RoosterPlan.apk) on the Android tablet and open the downloaded file. Allow the browser to install apps if Android asks. The app requires Android 7.0 or newer. Signed APKs and their checksums are published on the `apk-downloads` branch.
+
 ## Build an Android APK
 
 The Android Gradle project is included. On Linux, install Node.js, Java 17, Android SDK Platform 36, and Android build tools. Create a private release keystore and provide its path and credentials through the `ROOSTERPLAN_KEYSTORE_PATH`, `ROOSTERPLAN_KEYSTORE_PASSWORD`, `ROOSTERPLAN_KEY_PASSWORD`, and `ROOSTERPLAN_KEY_ALIAS` environment variables. Do not put the keystore or passwords in GitHub.
