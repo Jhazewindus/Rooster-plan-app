@@ -94,8 +94,8 @@ android {
         // Android 16 ignores fixed orientation on large screens for apps targeting API 36.
         // This tablet APK targets API 35 so its landscape orientation remains effective.
         targetSdkVersion 35
-        versionCode 9
-        versionName "1.0.8"
+        versionCode 10
+        versionName "1.0.9"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

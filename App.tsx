@@ -5,16 +5,18 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AbsencesScreen, DashboardScreen, TeamScreen } from './src/screens';
 import { WeekScreen } from './src/WeekScreen';
+import { HistoryScreen } from './src/HistoryScreen';
 import { SettingsScreen } from './src/SettingsScreen';
 import { PlannerProvider, usePlanner } from './src/store';
 import { LoadingBlock, palette } from './src/ui';
 
-type TabId = 'home' | 'week' | 'team' | 'absences' | 'settings';
+type TabId = 'home' | 'week' | 'history' | 'team' | 'absences' | 'settings';
 const tabs: { id: TabId; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; activeIcon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
   { id: 'home', label: 'Inzicht', icon: 'grid-outline', activeIcon: 'grid' },
   { id: 'week', label: 'Week', icon: 'calendar-outline', activeIcon: 'calendar' },
+  { id: 'history', label: 'Historie', icon: 'time-outline', activeIcon: 'time' },
   { id: 'team', label: 'Team', icon: 'people-outline', activeIcon: 'people' },
-  { id: 'absences', label: 'Afwezig', icon: 'time-outline', activeIcon: 'time' },
+  { id: 'absences', label: 'Afwezig', icon: 'calendar-clear-outline', activeIcon: 'calendar-clear' },
   { id: 'settings', label: 'Instellingen', icon: 'settings-outline', activeIcon: 'settings' },
 ];
 
@@ -35,6 +37,7 @@ function AppContent() {
       {planner.error ? <View style={{ backgroundColor: '#F8EAE7', padding: 9, paddingHorizontal: 16 }}><Text style={{ color: '#C05F59', fontSize: 12 }}>{planner.error}</Text></View> : null}
       {tab === 'home' ? <DashboardScreen onNavigate={navigateFromHome} /> : null}
       {tab === 'week' ? <WeekScreen /> : null}
+      {tab === 'history' ? <HistoryScreen /> : null}
       {tab === 'team' ? <TeamScreen /> : null}
       {tab === 'absences' ? <AbsencesScreen /> : null}
       {tab === 'settings' ? <SettingsScreen /> : null}
