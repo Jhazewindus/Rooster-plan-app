@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { dateKey, Employee, Shift, toIsoWeekday } from './domain';
 import { canWorkOnDate } from './planner';
@@ -26,6 +27,7 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
   const [start, setStart] = useState('07:00');
   const [end, setEnd] = useState('17:00');
   const [notes, setNotes] = useState('');
+  const [paidInternShift, setPaidInternShift] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -33,11 +35,13 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
     setStart(shift ? showTime(new Date(shift.startAt)) : '07:00');
     setEnd(shift ? showTime(new Date(shift.endAt)) : '17:00');
     setNotes(shift?.notes ?? '');
+    setPaidInternShift(Boolean(shift?.paidInternShift));
   }, [visible, shift, day.getTime()]);
 
   const selectedEmployee = eligible.find((employee) => employee.id === employeeId);
   const selectEmployee = (employee: Employee) => {
     setEmployeeId(employee.id);
+    setPaidInternShift(shift?.employeeId === employee.id ? Boolean(shift.paidInternShift) : false);
     if (!shift) {
       const window = employee.availability[toIsoWeekday(day)];
       if (window) { setStart(showMinute(window.startMinute)); setEnd(showMinute(window.endMinute)); }
@@ -50,7 +54,7 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
     if (startMinute === null || endMinute === null || endMinute <= startMinute) { Alert.alert('Tijden controleren', 'De eindtijd moet na de begintijd liggen.'); return; }
     const from = new Date(day); from.setHours(Math.floor(startMinute / 60), startMinute % 60, 0, 0);
     const until = new Date(day); until.setHours(Math.floor(endMinute / 60), endMinute % 60, 0, 0);
-    const error = onSave({ employeeId, startAt: from.toISOString(), endAt: until.toISOString(), notes: notes.trim() }, shift?.id);
+    const error = onSave({ employeeId, startAt: from.toISOString(), endAt: until.toISOString(), notes: notes.trim(), paidInternShift: selectedEmployee.kind === 'intern' && paidInternShift ? true : undefined }, shift?.id);
     if (error) Alert.alert('Dienst niet opgeslagen', error);
     else onClose();
   };
@@ -67,6 +71,7 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
           <View style={{ padding: 17, borderRadius: 20, backgroundColor: '#FFF', gap: 14 }}>
             <Text style={{ color: palette.ink, fontWeight: '800' }}>Medewerker</Text>
             {eligible.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{eligible.map((employee) => <Pressable key={employee.id} onPress={() => selectEmployee(employee)} style={{ padding: 10, borderRadius: 12, backgroundColor: employeeId === employee.id ? palette.primary : palette.palePrimary }}><Text style={{ color: employeeId === employee.id ? '#FFF' : palette.primaryDark, fontWeight: '700' }}>{employee.displayName}{employee.kind === 'intern' ? ' · stagiair' : employee.kind === 'periodic' ? ' · periodiek' : ''}</Text></Pressable>)}</View> : <Text style={{ color: palette.muted }}>Geen medewerker beschikbaar op deze datum.</Text>}
+            {selectedEmployee?.kind === 'intern' ? <Pressable onPress={() => setPaidInternShift((value) => !value)} accessibilityRole="checkbox" accessibilityState={{ checked: paidInternShift }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}><Ionicons name={paidInternShift ? 'checkbox' : 'square-outline'} size={23} color={palette.primary} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Betaalde dienst</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 2 }}>Telt mee voor de bezetting en mag zonder begeleider.</Text></View></Pressable> : null}
             <View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1 }}><TimeField label="Van" value={start} onChangeText={setStart} /></View><View style={{ flex: 1 }}><TimeField label="Tot" value={end} onChangeText={setEnd} /></View></View>
             <Field label="Opmerking (optioneel)" value={notes} onChangeText={setNotes} />
           </View>

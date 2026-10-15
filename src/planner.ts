@@ -61,12 +61,15 @@ export function workedMinutes(shift: Shift, settings?: PlannerSettings): number 
 
 export type CoverageGap = { startAt: string; endAt: string; staffCount: number };
 
-/** Count distinct, non-intern staff throughout the required daily opening hours. */
+/** Count distinct staff; an intern only counts during a marked paid shift. */
 export function dailyCoverageGaps(day: Date, shifts: Shift[], employees: Employee[]): CoverageGap[] {
   const start = atMinute(day, 7 * 60).getTime();
   const end = atMinute(day, 19 * 60 + 30).getTime();
-  const eligible = new Set(employees.filter((employee) => employee.active && employee.kind !== 'intern' && canWorkOnDate(employee, day)).map((employee) => employee.id));
-  const windows = shifts.filter((shift) => shift.employeeId && eligible.has(shift.employeeId))
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  const windows = shifts.filter((shift) => {
+    const employee = shift.employeeId ? byId.get(shift.employeeId) : undefined;
+    return Boolean(employee && (employee.kind !== 'intern' || shift.paidInternShift));
+  })
     .map((shift) => ({ employeeId: shift.employeeId!, from: Math.max(start, asDate(shift.startAt).getTime()), until: Math.min(end, asDate(shift.endAt).getTime()) }))
     .filter((window) => window.until > window.from);
   const points = [...new Set([start, end, ...windows.flatMap((window) => [window.from, window.until])])].sort((a, b) => a - b);
@@ -81,6 +84,23 @@ export function dailyCoverageGaps(day: Date, shifts: Shift[], employees: Employe
     else gaps.push({ startAt: new Date(from).toISOString(), endAt: new Date(until).toISOString(), staffCount });
   }
   return gaps;
+}
+
+function removePaidOverlap(shift: Shift, paidManual: Shift[]): Shift[] {
+  if (!shift.employeeId || shift.source !== 'default') return [shift];
+  let remaining = [shift];
+  for (const paid of paidManual.filter((item) => item.employeeId === shift.employeeId)) {
+    remaining = remaining.flatMap((part) => {
+      const from = Math.max(asDate(part.startAt).getTime(), asDate(paid.startAt).getTime());
+      const until = Math.min(asDate(part.endAt).getTime(), asDate(paid.endAt).getTime());
+      if (until <= from) return [part];
+      const pieces: Shift[] = [];
+      if (asDate(part.startAt).getTime() < from) pieces.push({ ...part, endAt: new Date(from).toISOString() });
+      if (until < asDate(part.endAt).getTime()) pieces.push({ ...part, id: pieces.length ? makeId() : part.id, startAt: new Date(until).toISOString() });
+      return pieces;
+    });
+  }
+  return remaining;
 }
 
 function subtract(blockStart: Date, blockEnd: Date, window: [Date, Date]): [Date, Date][] {
@@ -203,16 +223,18 @@ export function rebuildSchedule(existing: Schedule, employees: Employee[], absen
     .filter((shift) => !absences.some((absence) => absence.employeeId === shift.employeeId && overlaps(asDate(shift.startAt), asDate(shift.endAt), asDate(absence.startAt), asDate(absence.endAt))))
     .filter((shift) => !preliminary.shifts.some((item) => item.employeeId === shift.employeeId && overlaps(asDate(item.startAt), asDate(item.endAt), asDate(shift.startAt), asDate(shift.endAt))));
   const base = generateWeek(asDate(existing.weekStart), employees, absences, [...regularManual, ...replacementSupervisors]);
+  const paidManual = eligibleManual.filter((shift) => shift.paidInternShift);
+  const generatedShifts = base.shifts.flatMap((shift) => removePaidOverlap(shift, paidManual));
   const visibleManual = eligibleManual.filter((shift) => {
     if (!shift.employeeId) return true;
     const employee = employees.find((item) => item.id === shift.employeeId);
-    if (base.shifts.some((item) => item.employeeId === shift.employeeId && overlaps(asDate(item.startAt), asDate(item.endAt), asDate(shift.startAt), asDate(shift.endAt)))) return false;
-    return employee?.kind !== 'intern' || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), [...base.shifts, ...regularManual], employees);
+    if (generatedShifts.some((item) => item.employeeId === shift.employeeId && overlaps(asDate(item.startAt), asDate(item.endAt), asDate(shift.startAt), asDate(shift.endAt)))) return false;
+    return Boolean(shift.paidInternShift || employee?.kind !== 'intern' || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), [...generatedShifts, ...regularManual], employees));
   });
-  const rebuilt = preserveValidReplacements([...base.shifts, ...visibleManual], existing, employees, absences);
+  const rebuilt = preserveValidReplacements([...generatedShifts, ...visibleManual], existing, employees, absences);
   const shifts = rebuilt.filter((shift) => {
     const intern = employees.find((employee) => employee.id === (shift.employeeId ?? shift.originalEmployeeId) && employee.kind === 'intern');
-    return !intern || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), rebuilt, employees);
+    return !intern || shift.paidInternShift || hasRegularCoverage(asDate(shift.startAt), asDate(shift.endAt), rebuilt, employees);
   });
   return { ...existing, status: 'draft', updatedAt: new Date().toISOString(), manualShifts, shifts };
 }
@@ -234,6 +256,41 @@ export function generateScheduleRange(starting: Date, months: 1 | 6 | 12, employ
   return [...generated.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
+function keepPastDays(previous: Schedule | undefined, regenerated: Schedule, today: Date): Schedule {
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+  const cutoff = todayStart.getTime();
+  const historicalShifts = previous?.shifts.filter((shift) => asDate(shift.startAt).getTime() < cutoff) ?? [];
+  const futureShifts = regenerated.shifts.filter((shift) => asDate(shift.startAt).getTime() >= cutoff);
+  const historicalManual = previous?.manualShifts?.filter((shift) => asDate(shift.startAt).getTime() < cutoff) ?? [];
+  const futureManual = regenerated.manualShifts?.filter((shift) => asDate(shift.startAt).getTime() >= cutoff) ?? [];
+  return { ...regenerated, shifts: [...historicalShifts, ...futureShifts].sort(orderShifts), manualShifts: [...historicalManual, ...futureManual] };
+}
+
+/** Bulk generation never touches completed weeks or elapsed days in this week. */
+export function generateFutureScheduleRange(starting: Date, months: 1 | 6 | 12, employees: Employee[], absences: Absence[], existing: Schedule[], today = new Date()): Schedule[] {
+  const currentMonday = mondayOf(today);
+  const selectedMonday = mondayOf(starting);
+  const start = selectedMonday < currentMonday ? currentMonday : selectedMonday;
+  const generated = generateScheduleRange(start, months, employees, absences, existing);
+  if (start > currentMonday) return generated;
+  const key = dateKey(currentMonday);
+  const previous = existing.find((schedule) => dateKey(asDate(schedule.weekStart)) === key);
+  return generated.map((schedule) => dateKey(asDate(schedule.weekStart)) === key ? keepPastDays(previous, schedule, today) : schedule);
+}
+
+/** A single past week is read-only to the automatic generator. */
+export function generateFutureWeek(starting: Date, employees: Employee[], absences: Absence[], existing: Schedule[], today = new Date()): Schedule[] {
+  const start = mondayOf(starting);
+  const currentMonday = mondayOf(today);
+  if (start < currentMonday) return existing;
+  const key = dateKey(start);
+  const previous = existing.find((schedule) => dateKey(asDate(schedule.weekStart)) === key);
+  const regenerated = previous ? rebuildSchedule(previous, employees, absences) : generateWeek(start, employees, absences);
+  const next = start.getTime() === currentMonday.getTime() ? keepPastDays(previous, regenerated, today) : regenerated;
+  return [...existing.filter((schedule) => dateKey(asDate(schedule.weekStart)) !== key), next].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
 export function rebuildAffectedSchedules(current: PlannerData, absences: Absence[], changed: Absence[]): Schedule[] {
   return current.schedules.map((schedule) => {
     const start = asDate(schedule.weekStart);
@@ -243,14 +300,25 @@ export function rebuildAffectedSchedules(current: PlannerData, absences: Absence
   });
 }
 
-/** Remove a team member and rebuild weeks that referred to them. */
-export function removeEmployeeFromData(current: PlannerData, employeeId: string): PlannerData {
-  if (!current.employees.some((employee) => employee.id === employeeId)) return current;
-  const employees = current.employees.filter((employee) => employee.id !== employeeId);
-  const absences = current.absences.filter((absence) => absence.employeeId !== employeeId);
+/** Hide a team member from future planning while retaining their historical name and shifts. */
+export function removeEmployeeFromData(current: PlannerData, employeeId: string, today = new Date()): PlannerData {
+  if (!current.employees.some((employee) => employee.id === employeeId && employee.active)) return current;
+  const employees = current.employees.map((employee) => employee.id === employeeId ? { ...employee, active: false } : employee);
+  const todayStart = new Date(today); todayStart.setHours(0, 0, 0, 0);
+  const absences = current.absences.flatMap((absence) => {
+    if (absence.employeeId !== employeeId) return [absence];
+    if (asDate(absence.startAt) >= todayStart) return [];
+    return [{ ...absence, endAt: asDate(absence.endAt) > todayStart ? todayStart.toISOString() : absence.endAt }];
+  });
+  const currentMonday = mondayOf(today);
   const schedules = current.schedules.map((schedule) => {
+    const weekStart = asDate(schedule.weekStart);
+    if (weekStart < currentMonday) return schedule;
     const affected = [...schedule.shifts, ...(schedule.manualShifts ?? [])].some((shift) => shift.employeeId === employeeId || shift.originalEmployeeId === employeeId);
-    return affected ? rebuildSchedule(schedule, employees, absences) : schedule;
+    if (!affected) return schedule;
+    const retainedManual = schedule.manualShifts?.filter((shift) => shift.employeeId !== employeeId || (weekStart.getTime() === currentMonday.getTime() && asDate(shift.startAt) < todayStart));
+    const regenerated = rebuildSchedule({ ...schedule, manualShifts: retainedManual }, employees, absences);
+    return weekStart.getTime() === currentMonday.getTime() ? keepPastDays(schedule, regenerated, today) : regenerated;
   });
   return { ...current, employees, absences, schedules };
 }

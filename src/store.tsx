@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Absence, dateKey, Employee, emptyPlannerData, makeId, mondayOf, PlannerData, PlannerSettings, Schedule, Shift, Weekday } from './domain';
-import { assignReplacement, canWorkOnDate, currentSchedule, generateScheduleRange, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, removeEmployeeFromData, suggestCoverage } from './planner';
+import { assignReplacement, canWorkOnDate, currentSchedule, generateFutureScheduleRange, generateFutureWeek, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, removeEmployeeFromData, suggestCoverage } from './planner';
 
 const STORAGE_KEY = 'roosterplan.v1';
 type PlannerContextValue = {
@@ -99,15 +99,11 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
   }, []);
 
   const generateCurrentWeek = useCallback(() => {
-    setData((current) => {
-      const old = currentSchedule(current, weekStart);
-      const next = old ? rebuildSchedule(old, current.employees, current.absences) : generateWeek(weekStart, current.employees, current.absences);
-      return { ...current, schedules: [...current.schedules.filter((item) => item.id !== old?.id), next] };
-    });
+    setData((current) => ({ ...current, schedules: generateFutureWeek(weekStart, current.employees, current.absences, current.schedules) }));
   }, [weekStart]);
 
   const generateMonths = useCallback((months: 1 | 6 | 12) => {
-    setData((current) => ({ ...current, schedules: generateScheduleRange(weekStart, months, current.employees, current.absences, current.schedules) }));
+    setData((current) => ({ ...current, schedules: generateFutureScheduleRange(weekStart, months, current.employees, current.absences, current.schedules) }));
   }, [weekStart]);
 
   const saveManualShift = useCallback((input: Omit<Shift, 'id' | 'source' | 'originalEmployeeId'>, existingId?: string): string | null => {
@@ -119,10 +115,10 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     const existing = currentSchedule(data, start);
     const base = existing ?? generateWeek(start, data.employees, data.absences);
     const otherShifts = base.shifts.filter((shift) => shift.id !== existingId);
-    if (otherShifts.some((shift) => shift.employeeId === employee.id && overlapsShift(shift, start, end))) return 'Deze medewerker heeft al een overlappende dienst.';
+    if (otherShifts.some((shift) => shift.employeeId === employee.id && overlapsShift(shift, start, end) && !(employee.kind === 'intern' && input.paidInternShift && shift.source === 'default'))) return 'Deze medewerker heeft al een overlappende dienst.';
     if (data.absences.some((absence) => absence.employeeId === employee.id && new Date(absence.startAt) < end && new Date(absence.endAt) > start)) return 'Deze medewerker is dan afwezig.';
-    if (employee.kind === 'intern' && !hasRegularCoverage(start, end, otherShifts, data.employees)) return 'Een stagiair heeft tijdens de hele dienst een gewone medewerker nodig.';
-    const shift: Shift = { ...input, id: existingId ?? makeId(), source: 'manual', originalEmployeeId: null };
+    if (employee.kind === 'intern' && !input.paidInternShift && !hasRegularCoverage(start, end, otherShifts, data.employees)) return 'Een stagiair heeft tijdens de hele dienst een gewone medewerker nodig.';
+    const shift: Shift = { ...input, paidInternShift: employee.kind === 'intern' && input.paidInternShift ? true : undefined, id: existingId ?? makeId(), source: 'manual', originalEmployeeId: null };
     const manualShifts = [...(base.manualShifts ?? []).filter((item) => item.id !== existingId), shift];
     const next = rebuildSchedule({ ...base, manualShifts }, data.employees, data.absences);
     setData((current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== base.id), next] }));

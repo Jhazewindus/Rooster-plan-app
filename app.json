@@ -2,7 +2,7 @@
   "expo": {
     "name": "RoosterPlan",
     "slug": "roosterplan",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "landscape",
     "scheme": "roosterplan",
     "platforms": ["android"],
@@ -10,7 +10,7 @@
     "icon": "./assets/icon.png",
     "android": {
       "package": "nl.roosterplan.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-foreground.png",
         "backgroundColor": "#F4E9DC"

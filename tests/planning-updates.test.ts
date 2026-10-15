@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Absence, dateKey, Employee, PlannerSettings, Shift } from '../src/domain';
-import { generateScheduleRange, generateWeek, rebuildAffectedSchedules, rebuildSchedule, recommendations, workedMinutes } from '../src/planner';
+import { generateFutureScheduleRange, generateFutureWeek, generateScheduleRange, generateWeek, rebuildAffectedSchedules, rebuildSchedule, recommendations, workedMinutes } from '../src/planner';
 
 const monday = new Date(2026, 9, 12);
 function at(day: Date, hour: number, minute = 0): string {
@@ -119,4 +119,35 @@ test('generates one, six or twelve months and includes a newly added employee on
   const regenerated = generateScheduleRange(monday, 1, [regular, newcomer], [], one);
   assert.equal(regenerated.length, 5);
   assert.ok(regenerated.every((item) => item.shifts.some((entry) => entry.employeeId === 'new')));
+});
+
+test('paid evening work reclassifies only the overlapping intern hours and survives regeneration', () => {
+  const regular = employee('regular', { 1: { startMinute: 420, endMinute: 1170 } });
+  const intern = employee('intern', { 1: { startMinute: 420, endMinute: 1170 } }, true);
+  const evening: Shift = { ...shift('paid', monday, 17, 19), endAt: at(monday, 19, 30), employeeId: intern.id, paidInternShift: true };
+  const generated = generateWeek(monday, [regular, intern]);
+  const rebuilt = rebuildSchedule({ ...generated, manualShifts: [evening] }, [regular, intern], []);
+  const internShifts = rebuilt.shifts.filter((item) => item.employeeId === intern.id);
+  assert.deepEqual(internShifts.map((item) => [item.paidInternShift ?? false, new Date(item.startAt).getHours(), new Date(item.endAt).getHours()]), [[false, 7, 17], [true, 17, 19]]);
+  const again = rebuildSchedule(rebuilt, [regular, intern], []);
+  assert.deepEqual(again.shifts.filter((item) => item.employeeId === intern.id).map((item) => item.paidInternShift ?? false), [false, true]);
+  const alone = rebuildSchedule({ ...generateWeek(monday, [intern]), manualShifts: [evening] }, [intern], []);
+  assert.deepEqual(alone.shifts.map((item) => item.id), ['paid']);
+});
+
+test('future generation leaves old weeks and earlier days of this week untouched', () => {
+  const regular = employee('regular', { 1: { startMinute: 420, endMinute: 1020 }, 4: { startMinute: 420, endMinute: 1020 } });
+  const newcomer = employee('new', { 1: { startMinute: 420, endMinute: 1020 }, 4: { startMinute: 420, endMinute: 1020 } });
+  const lastMonday = new Date(2026, 9, 5);
+  const past = generateWeek(lastMonday, [regular]);
+  const current = generateWeek(monday, [regular]);
+  current.shifts[0] = { ...current.shifts[0], startAt: at(monday, 9) };
+  const today = new Date(2026, 9, 15, 12);
+  const result = generateFutureScheduleRange(lastMonday, 1, [regular, newcomer], [], [past, current], today);
+  assert.strictEqual(result.find((item) => item.id === past.id), past);
+  const refreshed = result.find((item) => item.id === current.id)!;
+  assert.deepEqual(refreshed.shifts.filter((item) => dateKey(new Date(item.startAt)) === '2026-10-12'), [current.shifts[0]]);
+  assert.equal(refreshed.shifts.some((item) => item.employeeId === newcomer.id && dateKey(new Date(item.startAt)) === '2026-10-12'), false);
+  assert.equal(refreshed.shifts.some((item) => item.employeeId === newcomer.id && dateKey(new Date(item.startAt)) === '2026-10-15'), true);
+  assert.strictEqual(generateFutureWeek(lastMonday, [regular, newcomer], [], [past, current], today)[0], past);
 });

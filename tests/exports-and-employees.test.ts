@@ -27,19 +27,24 @@ test('periodic workers are limited to their dates but can supervise interns', ()
   assert.equal(generateWeek(new Date(2027, 0, 4), [periodic, intern]).shifts.length, 0);
 });
 
-test('deleting a worker clears absences and rebuilds affected rosters', () => {
+test('removing a worker archives their history but clears future absences and shifts', () => {
   const mila = employee('Mila');
   const jo = employee('Jo');
   const data: PlannerData = {
     employees: [mila, jo], settings: { breaks: [] },
     absences: [{ id: 'away', employeeId: mila.id, type: 'vacation', startAt: '2026-12-28T00:00:00.000Z', endAt: '2026-12-29T00:00:00.000Z', notes: '' }],
-    schedules: [schedule('affected', [shift('m', mila.id, '2026-12-28T07:00:00.000Z', '2026-12-28T17:00:00.000Z')])],
+    schedules: [
+      { ...schedule('past', [shift('old', mila.id, '2026-12-14T07:00:00.000Z', '2026-12-14T17:00:00.000Z')]), weekStart: '2026-12-14T00:00:00.000Z' },
+      schedule('affected', [shift('m', mila.id, '2026-12-28T07:00:00.000Z', '2026-12-28T17:00:00.000Z')]),
+    ],
   };
-  const result = removeEmployeeFromData(data, mila.id);
-  assert.deepEqual(result.employees.map((person) => person.id), ['Jo']);
+  const result = removeEmployeeFromData(data, mila.id, new Date(2026, 11, 21));
+  assert.deepEqual(result.employees.filter((person) => person.active).map((person) => person.id), ['Jo']);
+  assert.equal(result.employees.find((person) => person.id === mila.id)?.displayName, 'Mila');
   assert.equal(result.absences.length, 0);
-  assert.equal(result.schedules[0].status, 'draft');
-  assert.ok(result.schedules[0].shifts.every((item) => item.employeeId !== mila.id && item.originalEmployeeId !== mila.id));
+  assert.strictEqual(result.schedules[0], data.schedules[0]);
+  assert.equal(result.schedules[1].status, 'draft');
+  assert.ok(result.schedules[1].shifts.every((item) => item.employeeId !== mila.id && item.originalEmployeeId !== mila.id));
 });
 
 test('daily coverage needs five distinct non-intern staff for the entire 07:00â€“19:30 interval', () => {
@@ -55,6 +60,7 @@ test('daily coverage needs five distinct non-intern staff for the entire 07:00â€
   assert.deepEqual(dailyCoverageGaps(day, early, workers).map((gap) => [gap.staffCount, gap.startAt, gap.endAt]), [[4, at(10), at(19, 30)]]);
   const duplicate = [...short, shift('duplicate', workers[0].id, at(7), at(19, 30))];
   assert.equal(dailyCoverageGaps(day, duplicate, [...workers, intern])[0].staffCount, 4);
+  assert.deepEqual(dailyCoverageGaps(day, [...full.slice(0, 4), { ...short[4], paidInternShift: true }], [...workers, intern]), []);
 });
 
 test('year export is a readable Excel ZIP with only that year and break-adjusted totals', () => {
@@ -78,4 +84,14 @@ test('year export is a readable Excel ZIP with only that year and break-adjusted
   assert.match(details, /<c r="H2" s="0"><v>9\.5<\/v><\/c>/);
   assert.match(details, /<c r="G3" s="0"><v>0<\/v><\/c>/);
   assert.match(summary, /<c r="D14" s="0"><v>9\.5<\/v><\/c>/);
+});
+
+test('year export marks paid intern work and totals those hours separately', () => {
+  const intern = employee('Jo', 'intern');
+  const paid = { ...shift('paid', intern.id, '2026-12-28T17:00:00.000Z', '2026-12-28T19:30:00.000Z'), paidInternShift: true };
+  const files = unzipSync(createYearWorkbook({ employees: [intern], absences: [], schedules: [schedule('week', [paid])] }, 2026));
+  const details = strFromU8(files['xl/worksheets/sheet2.xml']);
+  const summary = strFromU8(files['xl/worksheets/sheet1.xml']);
+  assert.match(details, /Betaalde dienst/);
+  assert.match(summary, /<c r="E14" s="0"><v>2\.5<\/v><\/c>/);
 });

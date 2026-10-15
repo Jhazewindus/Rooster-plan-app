@@ -4,15 +4,15 @@ RoosterPlan is een offline Android-tabletapp voor personeelsplanning in een dier
 
 ## Planning
 
-Een rooster loopt van maandag tot en met zondag. De generator gebruikt de ingestelde werkdagen en tijden van actieve medewerkers. Je kunt een week of 1, 6 of 12 maanden vooruit plannen. Opnieuw genereren verwerkt de actuele teambezetting, afwezigheid en handmatige diensten.
+Een rooster loopt van maandag tot en met zondag. De generator gebruikt de ingestelde werkdagen en tijden van actieve medewerkers. Je kunt een week of 1, 6 of 12 maanden vooruit plannen. Opnieuw genereren verwerkt de actuele teambezetting, afwezigheid en handmatige diensten, maar laat alle dagen vóór vandaag ongemoeid. Oude weken kun je alleen bewust handmatig corrigeren.
 
-Een stagiair staat alleen binnen de stageperiode op het rooster en alleen wanneer tijdens de hele dienst ook een gewone medewerker werkt. Een periodieke medewerker heeft eveneens een begin- en einddatum, maar mag zelfstandig werken. Afwezigheid maakt het overlappende deel van een dienst open. De planner kan een vervanger voor een hele of gedeeltelijke open dienst kiezen; overlappende diensten en afwezigheid worden uitgesloten.
+Een stagiair staat alleen binnen de stageperiode op het rooster en normaal alleen wanneer tijdens de hele dienst ook een gewone medewerker werkt. Een handmatig ingevoerde betaalde dienst is de uitzondering: die telt mee voor de bezetting, mag zelfstandig worden gewerkt en blijft als betaalde dienst herkenbaar in het rooster en Excel-bestand. Een periodieke medewerker heeft eveneens een begin- en einddatum, maar mag zelfstandig werken. Afwezigheid maakt het overlappende deel van een dienst open. De planner kan een vervanger voor een hele of gedeeltelijke open dienst kiezen; overlappende diensten en afwezigheid worden uitgesloten.
 
-Betrokken weken worden na een wijziging in afwezigheid opnieuw opgebouwd. Bij het verwijderen van een medewerker verdwijnen ook diens afwezigheden en worden betrokken weken concept. Handmatig toegevoegde diensten kun je per dag wijzigen of verwijderen.
+Een bewuste wijziging in afwezigheid bouwt de betrokken weken opnieuw op, ook als het om een correctie in het verleden gaat. Het verwijderen van een medewerker archiveert diegene voor oude roosters en haalt de persoon uit toekomstige planning; toekomstige afwezigheden verdwijnen. Handmatig toegevoegde diensten kun je per dag wijzigen of verwijderen.
 
 Pauzeregels kunnen voor de dag of avond gelden. Alleen de minuten die daadwerkelijk binnen een dienst vallen, verminderen de getelde werkuren. Overlappende pauzes tellen niet dubbel.
 
-Iedere dag vraagt dekking van 07:00 tot 19:30 met minstens vijf gelijktijdig ingeplande medewerkers, zonder stagiairs mee te tellen. De weekweergave en gedeelde afbeeldingen markeren de intervallen waar dit niet lukt.
+Iedere dag vraagt dekking van 07:00 tot 19:30 met minstens vijf gelijktijdig ingeplande medewerkers. Gewone stage telt niet mee; betaalde stage-diensten wel. De weekweergave en gedeelde afbeeldingen markeren de intervallen waar dit niet lukt.
 
 ## Delen en installeren
 

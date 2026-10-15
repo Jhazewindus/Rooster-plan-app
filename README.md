@@ -8,12 +8,12 @@ Open de APK op je Android-tablet om de app te installeren. Als Android erom vraa
 
 ## Wat je kunt doen
 
-- Medewerkers toevoegen, aanpassen en verwijderen, met vaste werkdagen en contracturen.
-- Stagiairs binnen hun stageperiode plannen, alleen samen met een gewone medewerker. Periodieke medewerkers hebben ook een begin- en einddatum, maar mogen zelfstandig werken.
-- Roosters per week maken of 1, 6 of 12 maanden vooruit genereren. Na een teamwijziging kun je ze opnieuw genereren.
+- Medewerkers toevoegen en aanpassen, met vaste werkdagen en contracturen. Verwijderen haalt iemand uit het actieve team; oude roosters bewaren diens naam.
+- Stagiairs binnen hun stageperiode plannen, normaal alleen samen met een gewone medewerker. Een handmatig ingevoerde **betaalde dienst** mag zelfstandig worden gewerkt en telt mee voor de bezetting. Periodieke medewerkers hebben een begin- en einddatum en mogen zelfstandig werken.
+- Roosters per week maken of 1, 6 of 12 maanden vooruit genereren. Opnieuw genereren verandert alleen vandaag en latere dagen; eerdere dagen blijven staan.
 - Afwezigheid en handmatige diensten toevoegen, aanpassen of verwijderen. Betrokken weken worden hersteld wanneer afwezigheid verandert.
 - Dag- en avondpauzes instellen. Alleen overlappende pauzetijd wordt van de getelde werkuren afgetrokken.
-- Per dag zien waar tussen 07:00 en 19:30 minder dan vijf medewerkers zonder stagiairs tegelijk staan ingepland.
+- Per dag zien waar tussen 07:00 en 19:30 minder dan vijf medewerkers tegelijk staan ingepland. Gewone stage telt niet mee; betaalde stage-diensten wel.
 - Een week of maand als afbeelding delen en het jaar als Excel-werkmap exporteren. De jaarwerkmap bevat een maandoverzicht en alle ingeplande en open diensten.
 
 Alle planning staat lokaal op de tablet. De app synchroniseert niet tussen apparaten; bewaar belangrijke exports dus ook buiten de tablet.

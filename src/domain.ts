@@ -37,6 +37,7 @@ export type Shift = {
   startAt: string;
   endAt: string;
   source: 'default' | 'replacement' | 'manual';
+  paidInternShift?: boolean;
   notes: string;
 };
 

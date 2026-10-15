@@ -25,6 +25,7 @@ export function WeekScreen() {
   const [manualDay, setManualDay] = useState<Date | undefined>();
   const [manualShift, setManualShift] = useState<Shift | undefined>();
   const weekShot = useRef<ViewShotRef>(null);
+  const isHistoricalWeek = weekStart < mondayOf(new Date());
 
   const stepWeek = (amount: number) => {
     const next = new Date(weekStart); next.setDate(next.getDate() + amount * 7); planner.goToWeek(next);
@@ -37,11 +38,11 @@ export function WeekScreen() {
     const hasExisting = data.schedules.some((item) => new Date(item.weekStart) >= weekStart && new Date(item.weekStart) < end);
     const run = () => planner.generateMonths(months);
     if (!hasExisting) { run(); return; }
-    Alert.alert('Roosters opnieuw genereren?', 'Bestaande weken worden opnieuw opgebouwd met het huidige team. Handmatige diensten en nog geldige vervangers blijven behouden; de weken worden concept.', [
+    Alert.alert('Roosters opnieuw genereren?', 'Alleen vandaag en toekomstige dagen worden opnieuw opgebouwd. Eerdere dagen blijven zoals ze waren; de gewijzigde weken worden concept.', [
       { text: 'Annuleren', style: 'cancel' }, { text: 'Opnieuw genereren', onPress: run },
     ]);
   };
-  const generateOneWeek = () => Alert.alert('Deze week opnieuw genereren?', 'De week wordt opnieuw opgebouwd met het huidige team. Handmatige diensten en nog geldige vervangers blijven behouden.', [
+  const generateOneWeek = () => Alert.alert('Deze week opnieuw genereren?', 'Eerdere dagen blijven zoals ze waren. Vandaag en de komende dagen worden opnieuw opgebouwd met het huidige team.', [
     { text: 'Annuleren', style: 'cancel' }, { text: 'Opnieuw genereren', onPress: planner.generateCurrentWeek },
   ]);
   const openCount = schedule?.shifts.filter((shift) => shift.employeeId === null).length ?? 0;
@@ -91,9 +92,9 @@ export function WeekScreen() {
           </View>
         </Card>
 
-        {data.employees.some((employee) => employee.active) ? <Card style={{ marginTop: 13, gap: 10 }}>
+        {isHistoricalWeek ? <Card style={{ marginTop: 13, gap: 5 }}><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 14 }}>Historisch rooster</Text><Text style={{ color: palette.muted, fontSize: 12 }}>Automatisch genereren begint vanaf de huidige week. Eerdere dagen blijven bewaard; je kunt ze wel bewust handmatig corrigeren.</Text></Card> : data.employees.some((employee) => employee.active) ? <Card style={{ marginTop: 13, gap: 10 }}>
           <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 15 }}>Vooruit plannen</Text>
-          <Text style={{ color: palette.muted, fontSize: 12 }}>Vanaf deze week genereren of opnieuw genereren met het huidige team.</Text>
+          <Text style={{ color: palette.muted, fontSize: 12 }}>Vanaf deze week vooruit plannen. Eerdere dagen van de lopende week blijven behouden.</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {([1, 6, 12] as const).map((months) => <Pressable key={months} onPress={() => generateMonths(months)} style={{ borderRadius: 12, backgroundColor: palette.palePrimary, paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: palette.primaryDark, fontWeight: '800' }}>{months} {months === 1 ? 'maand' : 'maanden'}</Text></Pressable>)}
             {schedule ? <Pressable onPress={generateOneWeek} style={{ borderRadius: 12, backgroundColor: '#F2F3F6', paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Deze week opnieuw</Text></Pressable> : null}
@@ -119,12 +120,12 @@ export function WeekScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ color: dayShifts.some((shift) => shift.employeeId === null) ? palette.amber : palette.muted, fontSize: 11, fontWeight: '700' }}>{dayShifts.length ? `${dayShifts.length} dienst${dayShifts.length === 1 ? '' : 'en'}` : 'Geen diensten'}</Text><Pressable onPress={() => openManual(day)} accessibilityLabel={`Dienst toevoegen op ${long}`} style={{ padding: 8, borderRadius: 10, backgroundColor: palette.palePrimary }}><Ionicons name="add" size={19} color={palette.primary} /></Pressable></View>
                 </View>
                 {dayShifts.map((shift) => <ShiftRow key={shift.id} shift={shift} employees={data.employees} settings={data.settings} onOpen={() => shift.source === 'manual' ? openManual(day, schedule.manualShifts?.find((item) => item.id === shift.id || (item.employeeId === shift.employeeId && item.startAt <= shift.startAt && item.endAt >= shift.endAt)) ?? shift) : setSelectedShift(shift)} />)}
-                {coverageGaps.length ? <View style={{ backgroundColor: '#FBEAE6', borderRadius: 10, padding: 9, marginTop: 8 }}><Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Onvoldoende dagdekking · minimaal 5 zonder stagiairs</Text><Text style={{ color: '#8A4D46', fontSize: 11, marginTop: 3 }}>{coverageDescription(coverageGaps)}</Text></View> : null}
+                {coverageGaps.length ? <View style={{ backgroundColor: '#FBEAE6', borderRadius: 10, padding: 9, marginTop: 8 }}><Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Onvoldoende dagdekking · minimaal 5 medewerkers</Text><Text style={{ color: '#8A4D46', fontSize: 11, marginTop: 3 }}>{coverageDescription(coverageGaps)} · Betaalde stage-diensten tellen mee.</Text></View> : null}
                 {dayAbsences.length > 0 ? <View style={{ marginTop: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{dayAbsences.map((absence) => { const employee = data.employees.find((person) => person.id === absence.employeeId); return <Pill key={absence.id} text={`${employee?.firstName ?? 'Team'} · afwezig`} color="#C05F59" background="#F8EAE7" />; })}</View> : null}
               </Card>;
             })}
           </View>
-        </> : data.employees.length ? <View style={{ marginTop: 22 }}><EmptyState title="Nog geen rooster voor deze week" detail="Genereer een concept op basis van de vaste werkdagen van je team." icon="calendar-outline" action={<PrimaryButton title="Genereer standaardrooster" icon="sparkles" onPress={planner.generateCurrentWeek} />} /></View>
+        </> : data.employees.length ? <View style={{ marginTop: 22 }}><EmptyState title="Nog geen rooster voor deze week" detail={isHistoricalWeek ? 'Dit is een oude week. Automatisch genereren kan vanaf de huidige week.' : 'Genereer een concept op basis van de vaste werkdagen van je team.'} icon="calendar-outline" action={isHistoricalWeek ? undefined : <PrimaryButton title="Genereer standaardrooster" icon="sparkles" onPress={planner.generateCurrentWeek} />} /></View>
           : <View style={{ marginTop: 22 }}><EmptyState title="Je team komt hier samen" detail="Voeg eerst medewerkers en hun vaste werktijden toe. Daarna maken we met één tik een weekrooster." /></View>}
         {!schedule && data.employees.length ? <View style={{ marginTop: 17, gap: 9 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Of voeg een dienst toe op:</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{WEEKDAYS.map(({ id, short }) => { const day = new Date(weekStart); day.setDate(day.getDate() + id - 1); return <Pressable key={id} onPress={() => openManual(day)} style={{ borderRadius: 11, backgroundColor: palette.palePrimary, padding: 10 }}><Text style={{ color: palette.primaryDark, fontWeight: '800' }}>+ {short}</Text></Pressable>; })}</View></View> : null}
       </ScrollView>
@@ -143,7 +144,7 @@ function ShiftRow({ shift, employees, settings, onOpen }: { shift: Shift; employ
   const breakMinutes = durationMinutes(shift) - workedMinutes(shift, settings);
   const content = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderColor: '#EEE6DC' }}>
     {employee ? <Avatar employee={employee} size={34} /> : <View style={{ width: 34, height: 34, borderRadius: 12, backgroundColor: '#FFF1DF', alignItems: 'center', justifyContent: 'center' }}><Ionicons name="person-add-outline" size={16} color="#AC6E2D" /></View>}
-    <View style={{ flex: 1 }}><Text style={{ color: open ? '#A6631D' : palette.ink, fontWeight: '800', fontSize: 13 }}>{employee?.displayName ?? 'Open dienst'}{employee?.kind === 'intern' ? ' · stagiair' : ''}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{open ? 'Kies een passende vervanger' : manual ? 'Handmatig toegevoegd' : employee?.role}</Text></View>
+    <View style={{ flex: 1 }}><Text style={{ color: open ? '#A6631D' : palette.ink, fontWeight: '800', fontSize: 13 }}>{employee?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : employee?.kind === 'intern' ? ' · stagiair' : ''}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{open ? 'Kies een passende vervanger' : shift.paidInternShift ? 'Betaalde dienst' : manual ? 'Handmatig toegevoegd' : employee?.role}</Text></View>
     <View style={{ alignItems: 'flex-end', gap: 4 }}><Text style={{ color: palette.ink, fontSize: 12, fontWeight: '800' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text>{breakMinutes > 0 ? <Text style={{ color: palette.muted, fontSize: 10 }}>{workedMinutes(shift, settings)} min gewerkt · {breakMinutes} min pauze</Text> : null}{open || manual ? <Text style={{ color: '#A6631D', fontSize: 10, fontWeight: '800' }}>{open ? 'OPEN · BEKIJK' : 'BEWERK'}</Text> : null}</View>
   </View>;
   return open || manual ? <Pressable onPress={onOpen} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>{content}</Pressable> : content;
@@ -192,7 +193,7 @@ function MonthPoster({ data, selectedDate }: { data: PlannerData; selectedDate: 
       const coverageGaps = schedule ? dailyCoverageGaps(day, shifts, data.employees) : [];
       return <View key={dateKey(day)} style={{ backgroundColor: '#FFF', borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', gap: 10 }}>
         <View style={{ width: 56 }}><Text style={{ color: palette.primary, fontSize: 11, fontWeight: '900' }}>{new Intl.DateTimeFormat('nl-NL', { weekday: 'short' }).format(day).toUpperCase()} {day.getDate()}</Text></View>
-        <View style={{ flex: 1, gap: 3 }}>{!schedule ? <Text style={{ color: '#A6631D', fontSize: 11 }}>Nog geen rooster</Text> : shifts.length ? shifts.map((shift) => <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text numberOfLines={1} style={{ color: shift.employeeId ? palette.ink : '#A6631D', fontSize: 11, fontWeight: '700', flex: 1 }}>{data.employees.find((item) => item.id === shift.employeeId)?.displayName ?? 'Open dienst'}</Text><Text style={{ color: palette.muted, fontSize: 10 }}>{formatTime(shift.startAt)}–{formatTime(shift.endAt)}</Text></View>) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}{coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Dekking onder 5: {coverageDescription(coverageGaps)}</Text> : null}</View>
+        <View style={{ flex: 1, gap: 3 }}>{!schedule ? <Text style={{ color: '#A6631D', fontSize: 11 }}>Nog geen rooster</Text> : shifts.length ? shifts.map((shift) => <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text numberOfLines={1} style={{ color: shift.employeeId ? palette.ink : '#A6631D', fontSize: 11, fontWeight: '700', flex: 1 }}>{data.employees.find((item) => item.id === shift.employeeId)?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : ''}</Text><Text style={{ color: palette.muted, fontSize: 10 }}>{formatTime(shift.startAt)}–{formatTime(shift.endAt)}</Text></View>) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}{coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Dekking onder 5: {coverageDescription(coverageGaps)}</Text> : null}</View>
       </View>;
     })}
     {missing ? <Text style={{ color: '#A6631D', fontSize: 10, textAlign: 'center' }}>{missing} {missing === 1 ? 'week' : 'weken'} zonder rooster zijn gemarkeerd.</Text> : null}
@@ -214,7 +215,7 @@ function RosterPoster({ schedule, employees, weekStart }: { schedule: Schedule; 
       const coverageGaps = dailyCoverageGaps(day, shifts, employees);
       return <View key={id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 13, gap: 8 }}>
         <Text style={{ color: '#B76445', fontWeight: '900', fontSize: 11, letterSpacing: 0.6 }}>{long.toUpperCase()} · {new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short' }).format(day).toUpperCase()}</Text>
-        {shifts.length ? shifts.map((shift) => { const employee = employees.find((item) => item.id === shift.employeeId); return <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEE6DC', paddingTop: 7, gap: 12 }}><Text style={{ color: shift.employeeId ? '#283044' : '#A6631D', fontSize: 12, fontWeight: '700', flex: 1 }}>{employee?.displayName ?? 'Open dienst'}</Text><Text style={{ color: '#697286', fontSize: 11, fontWeight: '700' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text></View>; }) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}
+        {shifts.length ? shifts.map((shift) => { const employee = employees.find((item) => item.id === shift.employeeId); return <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEE6DC', paddingTop: 7, gap: 12 }}><Text style={{ color: shift.employeeId ? '#283044' : '#A6631D', fontSize: 12, fontWeight: '700', flex: 1 }}>{employee?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : ''}</Text><Text style={{ color: '#697286', fontSize: 11, fontWeight: '700' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text></View>; }) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}
         {coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Dekking onder 5: {coverageDescription(coverageGaps)}</Text> : null}
       </View>;
     })}
