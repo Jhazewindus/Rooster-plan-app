@@ -9,8 +9,9 @@ import { Avatar, Card, EmptyState, PageHeading, Pill, PrimaryButton, RoundIconBu
 import { dateKey, durationMinutes, Employee, formatTime, mondayOf, PlannerData, PlannerSettings, Schedule, Shift, WEEKDAYS } from './domain';
 import { usePlanner } from './store';
 import { RecommendationsSheet } from './Recommendations';
-import { ManualShiftForm } from './ManualShiftForm';
-import { dailyCoverageGaps, CoverageGap, workedMinutes } from './planner';
+import { ManualShiftForm, ManualShiftPrefill } from './ManualShiftForm';
+import { HoursOverview } from './HoursOverview';
+import { coverageGapCandidates, dailyCoverageGaps, CoverageGap, workedMinutes } from './planner';
 import { createYearWorkbook, shiftsForYear } from './exportWorkbook';
 
 type ExportScope = 'week' | 'month' | 'year';
@@ -24,6 +25,8 @@ export function WeekScreen() {
   const [exportScope, setExportScope] = useState<ExportScope>('week');
   const [manualDay, setManualDay] = useState<Date | undefined>();
   const [manualShift, setManualShift] = useState<Shift | undefined>();
+  const [manualPrefill, setManualPrefill] = useState<ManualShiftPrefill | undefined>();
+  const [selectedGapKey, setSelectedGapKey] = useState<string | undefined>();
   const weekShot = useRef<ViewShotRef>(null);
   const isHistoricalWeek = weekStart < mondayOf(new Date());
 
@@ -31,8 +34,8 @@ export function WeekScreen() {
     const next = new Date(weekStart); next.setDate(next.getDate() + amount * 7); planner.goToWeek(next);
   };
   const goCurrent = () => planner.goToWeek(new Date());
-  const openManual = (day: Date, shift?: Shift) => { setManualDay(day); setManualShift(shift); };
-  const closeManual = () => { setManualDay(undefined); setManualShift(undefined); };
+  const openManual = (day: Date, shift?: Shift, prefill?: ManualShiftPrefill) => { setManualDay(day); setManualShift(shift); setManualPrefill(prefill); };
+  const closeManual = () => { setManualDay(undefined); setManualShift(undefined); setManualPrefill(undefined); };
   const generateMonths = (months: 1 | 6 | 12) => {
     const end = new Date(weekStart); end.setMonth(end.getMonth() + months);
     const hasExisting = data.schedules.some((item) => new Date(item.weekStart) >= weekStart && new Date(item.weekStart) < end);
@@ -106,6 +109,7 @@ export function WeekScreen() {
             <Pill text={schedule.status === 'draft' ? 'CONCEPT' : schedule.status === 'final' ? 'DEFINITIEF' : 'GEPUBLICEERD'} color={schedule.status === 'draft' ? palette.amber : palette.green} background={schedule.status === 'draft' ? palette.paleAmber : palette.paleGreen} />
             {schedule.status === 'draft' ? <Pressable onPress={() => confirmFinalize(schedule, openCount, planner.setScheduleStatus)}><Text style={{ color: palette.primary, fontSize: 13, fontWeight: '800' }}>Maak definitief</Text></Pressable> : <Text style={{ color: palette.green, fontSize: 12, fontWeight: '700' }}>Rooster is definitief</Text>}
           </View>
+          <HoursOverview schedule={schedule} employees={data.employees} settings={data.settings} title="Uren in deze week" />
           <SectionTitle title="Deze week" trailing={<Text style={{ color: palette.muted, fontSize: 12 }}>{schedule.shifts.length - openCount} diensten · {openCount} open</Text>} />
           <View style={{ gap: 11 }}>
             {WEEKDAYS.map(({ id, long, short }) => {
@@ -114,13 +118,40 @@ export function WeekScreen() {
               const coverageGaps = dailyCoverageGaps(day, dayShifts, data.employees);
               const nextDay = new Date(day); nextDay.setDate(nextDay.getDate() + 1);
               const dayAbsences = data.absences.filter((absence) => new Date(absence.startAt) < nextDay && new Date(absence.endAt) > day);
+              const activeGap = coverageGaps.find((gap) => `${gap.startAt}/${gap.endAt}` === selectedGapKey);
+              const gapCandidates = activeGap ? coverageGapCandidates(activeGap, schedule, data.employees, data.absences, data.settings) : [];
               return <Card key={id} style={{ padding: 14, borderColor: coverageGaps.length ? '#E7ABA0' : '#E9E0D5' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: dayShifts.length ? 10 : 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><View style={{ width: 36, height: 36, borderRadius: 13, backgroundColor: isToday(day) ? palette.primary : '#EEF0F5', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: isToday(day) ? '#FFF' : palette.muted, fontSize: 10, fontWeight: '800' }}>{short}</Text></View><View><Text style={{ color: palette.ink, fontWeight: '800', fontSize: 14 }}>{long}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 2 }}>{new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'long' }).format(day)}</Text></View></View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ color: dayShifts.some((shift) => shift.employeeId === null) ? palette.amber : palette.muted, fontSize: 11, fontWeight: '700' }}>{dayShifts.length ? `${dayShifts.length} dienst${dayShifts.length === 1 ? '' : 'en'}` : 'Geen diensten'}</Text><Pressable onPress={() => openManual(day)} accessibilityLabel={`Dienst toevoegen op ${long}`} style={{ padding: 8, borderRadius: 10, backgroundColor: palette.palePrimary }}><Ionicons name="add" size={19} color={palette.primary} /></Pressable></View>
                 </View>
                 {dayShifts.map((shift) => <ShiftRow key={shift.id} shift={shift} employees={data.employees} settings={data.settings} onOpen={() => shift.source === 'manual' ? openManual(day, schedule.manualShifts?.find((item) => item.id === shift.id || (item.employeeId === shift.employeeId && item.startAt <= shift.startAt && item.endAt >= shift.endAt)) ?? shift) : setSelectedShift(shift)} />)}
-                {coverageGaps.length ? <View style={{ backgroundColor: '#FBEAE6', borderRadius: 10, padding: 9, marginTop: 8 }}><Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Onvoldoende dagdekking · minimaal 5 medewerkers</Text><Text style={{ color: '#8A4D46', fontSize: 11, marginTop: 3 }}>{coverageDescription(coverageGaps)} · Betaalde stage-diensten tellen mee.</Text></View> : null}
+                {coverageGaps.length ? <View style={{ backgroundColor: '#FBEAE6', borderRadius: 10, padding: 10, marginTop: 8, gap: 7 }}>
+                  <Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Onvoldoende dagdekking · minimaal 5 medewerkers</Text>
+                  <Text style={{ color: '#8A4D46', fontSize: 11 }}>Tik op een tijdvak om het gat te vullen. Betaalde stage-diensten tellen mee.</Text>
+                  {coverageGaps.map((gap) => {
+                    const key = `${gap.startAt}/${gap.endAt}`;
+                    const openTarget = openShiftForGap(dayShifts, gap);
+                    return <Pressable key={key} accessibilityRole="button" accessibilityLabel={`Dekking aanvullen van ${formatTime(gap.startAt)} tot ${formatTime(gap.endAt)}`} onPress={() => {
+                      if (openTarget) { setSelectedGapKey(undefined); setSelectedShift(openTarget); }
+                      else setSelectedGapKey((current) => current === key ? undefined : key);
+                    }} style={{ backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ flex: 1, color: palette.ink, fontWeight: '800', fontSize: 12 }}>{formatTime(gap.startAt)}–{formatTime(gap.endAt)} · {gap.staffCount}/5</Text>
+                      <Text style={{ color: palette.primary, fontWeight: '800', fontSize: 11 }}>{openTarget ? 'Open dienst invullen' : 'Zoek medewerker'}</Text>
+                      <Ionicons name="chevron-forward" size={15} color={palette.primary} />
+                    </Pressable>;
+                  })}
+                </View> : null}
+                {activeGap ? <View style={{ marginTop: 9, padding: 12, backgroundColor: '#FFF9F2', borderRadius: 12, gap: 8 }}>
+                  <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 13 }}>Beschikbaar voor {formatTime(activeGap.startAt)}–{formatTime(activeGap.endAt)}</Text>
+                  <Text style={{ color: palette.muted, fontSize: 11 }}>Vrije tijdvakken zonder roosterconflict of afwezigheid. Spreek een extra dienst buiten vaste uren eerst af.</Text>
+                  {gapCandidates.length ? gapCandidates.map((candidate) => <Pressable key={candidate.employee.id} accessibilityRole="button" accessibilityLabel={`Dienst voorstellen aan ${candidate.employee.displayName} van ${formatTime(candidate.startAt)} tot ${formatTime(candidate.endAt)}`} onPress={() => openManual(day, undefined, { employeeId: candidate.employee.id, startAt: candidate.startAt, endAt: candidate.endAt })} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: '#FFF', borderRadius: 10, padding: 9 }}>
+                    <Avatar employee={candidate.employee} size={29} />
+                    <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontSize: 12, fontWeight: '800' }}>{candidate.employee.displayName} · {formatTime(candidate.startAt)}–{formatTime(candidate.endAt)}</Text><Text style={{ color: palette.muted, fontSize: 10, marginTop: 2 }}>{candidate.withinRegularHours ? 'Binnen vaste uren' : 'Extra dienst'} · {formatHours(candidate.projectedWeeklyMinutes)} u deze week{candidate.exceedsContract ? ' · boven contract' : ''}</Text></View>
+                    <Ionicons name="add-circle-outline" size={20} color={palette.primary} />
+                  </Pressable>) : <Text style={{ color: palette.muted, fontSize: 11 }}>Geen vrij tijdvak gevonden. Je kunt zelf een medewerker en aangepaste tijden kiezen.</Text>}
+                  <Pressable onPress={() => openManual(day, undefined, { employeeId: '', startAt: activeGap.startAt, endAt: activeGap.endAt })} style={{ padding: 8, alignSelf: 'flex-start' }}><Text style={{ color: palette.primary, fontSize: 12, fontWeight: '800' }}>Andere medewerker of betaalde stagiair kiezen</Text></Pressable>
+                </View> : null}
                 {dayAbsences.length > 0 ? <View style={{ marginTop: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{dayAbsences.map((absence) => { const employee = data.employees.find((person) => person.id === absence.employeeId); return <Pill key={absence.id} text={`${employee?.firstName ?? 'Team'} · afwezig`} color="#C05F59" background="#F8EAE7" />; })}</View> : null}
               </Card>;
             })}
@@ -131,7 +162,7 @@ export function WeekScreen() {
       </ScrollView>
 
       {schedule && <RecommendationsSheet visible={Boolean(selectedShift)} onClose={() => setSelectedShift(undefined)} shift={selectedShift} employees={data.employees} scheduleShifts={schedule.shifts} absences={data.absences} settings={data.settings} onAssign={(employeeId) => { if (planner.assign(selectedShift!.id, employeeId)) setSelectedShift(undefined); }} onUsePlan={() => { if (selectedShift && planner.useCoveragePlan(selectedShift)) setSelectedShift(undefined); }} />}
-      <ManualShiftForm visible={Boolean(manualDay)} day={manualDay ?? weekStart} shift={manualShift} employees={data.employees} onClose={closeManual} onSave={planner.saveManualShift} onDelete={planner.removeManualShift} />
+      <ManualShiftForm visible={Boolean(manualDay)} day={manualDay ?? weekStart} shift={manualShift} prefill={manualPrefill} employees={data.employees} onClose={closeManual} onSave={planner.saveManualShift} onDelete={planner.removeManualShift} />
       <ExportSheet visible={exportOpen} onClose={() => setExportOpen(false)} schedule={schedule} data={data} weekStart={weekStart} shotRef={weekShot} exporting={exporting} scope={exportScope} onScopeChange={setExportScope} onExport={exportSelected} />
     </View>
   );
@@ -229,6 +260,10 @@ function confirmFinalize(schedule: Schedule, openCount: number, setStatus: (stat
 }
 
 function sameLocalDay(first: Date, second: Date): boolean { return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate(); }
+function openShiftForGap(shifts: Shift[], gap: CoverageGap): Shift | undefined {
+  return shifts.find((shift) => shift.employeeId === null && new Date(shift.startAt) < new Date(gap.endAt) && new Date(shift.endAt) > new Date(gap.startAt));
+}
+function formatHours(minutes: number): string { return (minutes / 60).toLocaleString('nl-NL', { maximumFractionDigits: 2 }); }
 function coverageDescription(gaps: CoverageGap[]): string { return gaps.map((gap) => `${formatTime(gap.startAt)}–${formatTime(gap.endAt)} (${gap.staffCount}/5)`).join(' · '); }
 function isToday(date: Date): boolean { return sameLocalDay(date, new Date()); }
 function weekNumber(date: Date): string {

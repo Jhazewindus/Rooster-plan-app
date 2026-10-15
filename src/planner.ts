@@ -60,6 +60,36 @@ export function workedMinutes(shift: Shift, settings?: PlannerSettings): number 
 }
 
 export type CoverageGap = { startAt: string; endAt: string; staffCount: number };
+export type GapCandidate = { employee: Employee; startAt: string; endAt: string; coversWholeGap: boolean; projectedWeeklyMinutes: number; exceedsContract: boolean; withinRegularHours: boolean };
+
+/** Offer the longest free piece of a gap, preferring the employee's regular hours. */
+export function coverageGapCandidates(gap: CoverageGap, schedule: Schedule, employees: Employee[], absences: Absence[], settings?: PlannerSettings): GapCandidate[] {
+  const start = asDate(gap.startAt);
+  const end = asDate(gap.endAt);
+  const weekday = toIsoWeekday(start);
+  return employees.filter((employee) => employee.kind !== 'intern' && canWorkOnDate(employee, start))
+    .flatMap((employee) => {
+      const normal = employee.availability[weekday];
+      const normalStart = normal ? atMinute(start, normal.startMinute) : undefined;
+      const normalEnd = normal ? atMinute(start, normal.endMinute) : undefined;
+      const hasRegularOverlap = Boolean(normalStart && normalEnd && overlaps(start, end, normalStart, normalEnd));
+      const preferred: [Date, Date] = hasRegularOverlap ? [new Date(Math.max(start.getTime(), normalStart!.getTime())), new Date(Math.min(end.getTime(), normalEnd!.getTime()))] : [start, end];
+      let free = [preferred];
+      for (const shift of schedule.shifts.filter((item) => item.employeeId === employee.id)) free = free.flatMap((window) => subtract(asDate(shift.startAt), asDate(shift.endAt), window));
+      for (const absence of absences.filter((item) => item.employeeId === employee.id)) free = free.flatMap((window) => subtract(asDate(absence.startAt), asDate(absence.endAt), window));
+      const selected = free.sort((a, b) => (b[1].getTime() - b[0].getTime()) - (a[1].getTime() - a[0].getTime()))[0];
+      if (!selected) return [];
+      const [freeStart, freeEnd] = selected;
+      const scheduled = schedule.shifts.filter((shift) => shift.employeeId === employee.id).reduce((sum, shift) => sum + workedMinutes(shift, settings), 0);
+      const projectedWeeklyMinutes = scheduled + workedMinutes({ id: 'gap-preview', employeeId: employee.id, originalEmployeeId: null, startAt: freeStart.toISOString(), endAt: freeEnd.toISOString(), source: 'manual', notes: '' }, settings);
+      return [{ employee, startAt: freeStart.toISOString(), endAt: freeEnd.toISOString(), coversWholeGap: freeStart.getTime() === start.getTime() && freeEnd.getTime() === end.getTime(), projectedWeeklyMinutes, exceedsContract: employee.weeklyContractMinutes > 0 && projectedWeeklyMinutes > employee.weeklyContractMinutes, withinRegularHours: hasRegularOverlap }];
+    }).sort((a, b) => Number(b.withinRegularHours) - Number(a.withinRegularHours)
+      || Number(b.coversWholeGap) - Number(a.coversWholeGap)
+      || Number(a.exceedsContract) - Number(b.exceedsContract)
+      || (asDate(b.endAt).getTime() - asDate(b.startAt).getTime()) - (asDate(a.endAt).getTime() - asDate(a.startAt).getTime())
+      || a.projectedWeeklyMinutes - b.projectedWeeklyMinutes
+      || a.employee.displayName.localeCompare(b.employee.displayName, 'nl'));
+}
 
 /** Count distinct staff; an intern only counts during a marked paid shift. */
 export function dailyCoverageGaps(day: Date, shifts: Shift[], employees: Employee[]): CoverageGap[] {
@@ -434,6 +464,27 @@ export function assignReplacement(schedule: Schedule, shiftId: string, employeeI
 
 export function hoursForEmployee(schedule: Schedule, employeeId: string, settings?: PlannerSettings): number {
   return schedule.shifts.filter((shift) => shift.employeeId === employeeId).reduce((total, shift) => total + workedMinutes(shift, settings), 0) / 60;
+}
+
+export type WeeklyHoursRow = { employee: Employee; plannedMinutes: number; paidInternMinutes: number; contractMinutes: number };
+
+/** Include archived employees who still have shifts in this historical week. */
+export function weeklyHoursOverview(schedule: Schedule, employees: Employee[], settings?: PlannerSettings): WeeklyHoursRow[] {
+  const minutes = new Map<string, { planned: number; paidIntern: number }>();
+  for (const shift of schedule.shifts) {
+    if (!shift.employeeId) continue;
+    const current = minutes.get(shift.employeeId) ?? { planned: 0, paidIntern: 0 };
+    const worked = workedMinutes(shift, settings);
+    current.planned += worked;
+    if (shift.paidInternShift) current.paidIntern += worked;
+    minutes.set(shift.employeeId, current);
+  }
+  return employees.filter((employee) => employee.active || minutes.has(employee.id)).map((employee) => ({
+    employee,
+    plannedMinutes: minutes.get(employee.id)?.planned ?? 0,
+    paidInternMinutes: minutes.get(employee.id)?.paidIntern ?? 0,
+    contractMinutes: employee.weeklyContractMinutes,
+  })).sort((a, b) => a.employee.displayName.localeCompare(b.employee.displayName, 'nl'));
 }
 
 export function currentSchedule(data: PlannerData, weekStart: Date): Schedule | undefined {

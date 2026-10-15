@@ -14,6 +14,12 @@ Pauzeregels kunnen voor de dag of avond gelden. Alleen de minuten die daadwerkel
 
 Iedere dag vraagt dekking van 07:00 tot 19:30 met minstens vijf gelijktijdig ingeplande medewerkers. Gewone stage telt niet mee; betaalde stage-diensten wel. De weekweergave en gedeelde afbeeldingen markeren de intervallen waar dit niet lukt.
 
+Een tik op een tijdvak met te weinig dekking toont medewerkers zonder roosterconflict of afwezigheid. De planner stelt ook een vrij deel van het tijdvak voor als niemand de hele periode kan werken. De medewerker en tijden worden in een handmatige dienst vooringevuld; de planner bevestigt die nog zelf. Bij een overlappende open dienst begint de bestaande vervangerstroom. Het startscherm en weekrooster tonen daarnaast netto geplande uren per medewerker, betaalde stage-uren en het verschil met het weekcontract.
+
+## Later: samenwerken met Google
+
+Gewenste richting: een klein aantal planners meldt zich aan met een Google-account en werkt met dezelfde gegevens. Een gedeelde Google-spreadsheet als gegevensbron is mogelijk, maar vraagt OAuth-inrichting, expliciete toegang voor de accounts, offline synchronisatie en bescherming tegen gelijktijdig overschrijven. Voor betrouwbare samenwerking moet eerst het opslag- en conflictmodel worden gekozen; een spreadsheet kan ook dienen als leesbare export terwijl een gesynchroniseerde gegevensdienst de app voedt. Deze versie werkt nog lokaal en heeft geen Google-inlog.
+
 ## Delen en installeren
 
 Een week en maand kunnen als PNG worden gedeeld. Een jaar gaat naar een Excel-werkmap met maandtotalen en een rij per ingeplande of open dienst. Dagen zonder gegenereerd rooster worden in de maandafbeelding aangeduid. Exports bevatten alleen roosters die al op de tablet staan.

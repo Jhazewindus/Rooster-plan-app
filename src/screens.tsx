@@ -6,6 +6,7 @@ import { EmployeeForm } from './EmployeeForm';
 import { Absence, ABSENCE_COLOR, ABSENCE_LABEL, Employee, formatTime, WEEKDAYS } from './domain';
 import { currentSchedule, hoursForEmployee, workedMinutes } from './planner';
 import { usePlanner } from './store';
+import { HoursOverview } from './HoursOverview';
 import { Avatar, Card, EmptyState, PageHeading, Pill, PrimaryButton, SectionTitle, palette, SecondaryButton } from './ui';
 
 export function DashboardScreen({ onNavigate }: { onNavigate: (tab: 'week' | 'team' | 'absences') => void }) {
@@ -48,6 +49,8 @@ export function DashboardScreen({ onNavigate }: { onNavigate: (tab: 'week' | 'te
         <Metric title="Actief team" value={String(data.employees.filter((employee) => employee.active).length)} icon="people-outline" tint={palette.palePrimary} iconColor={palette.primary} />
         <Metric title="Afwezig vandaag" value={String(absencesToday.length)} icon="calendar-clear-outline" tint="#FFF2E7" iconColor="#C47E37" />
       </View>
+
+      {todaySchedule ? <HoursOverview schedule={todaySchedule} employees={data.employees} settings={data.settings} /> : null}
 
       {openShifts.length > 0 ? <>
         <SectionTitle title="Aandacht nodig" trailing={<Pill text={`${openShifts.length} OPEN`} color="#A6631D" background="#FFF0D9" />} />

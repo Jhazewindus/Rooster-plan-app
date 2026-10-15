@@ -8,10 +8,12 @@ import { Field, palette, PrimaryButton, RoundIconButton, TimeField } from './ui'
 import { parseTimeInput } from './timeInput';
 
 type Input = Omit<Shift, 'id' | 'source' | 'originalEmployeeId'>;
+export type ManualShiftPrefill = { employeeId: string; startAt: string; endAt: string };
 type Props = {
   visible: boolean;
   day: Date;
   shift?: Shift;
+  prefill?: ManualShiftPrefill;
   employees: Employee[];
   onClose: () => void;
   onSave: (input: Input, existingId?: string) => string | null;
@@ -21,7 +23,7 @@ type Props = {
 function showTime(value: Date): string { return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`; }
 function showMinute(value: number): string { return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`; }
 
-export function ManualShiftForm({ visible, day, shift, employees, onClose, onSave, onDelete }: Props) {
+export function ManualShiftForm({ visible, day, shift, prefill, employees, onClose, onSave, onDelete }: Props) {
   const eligible = employees.filter((employee) => canWorkOnDate(employee, day));
   const [employeeId, setEmployeeId] = useState('');
   const [start, setStart] = useState('07:00');
@@ -31,18 +33,18 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
 
   useEffect(() => {
     if (!visible) return;
-    setEmployeeId(shift?.employeeId ?? eligible[0]?.id ?? '');
-    setStart(shift ? showTime(new Date(shift.startAt)) : '07:00');
-    setEnd(shift ? showTime(new Date(shift.endAt)) : '17:00');
+    setEmployeeId(shift?.employeeId ?? prefill?.employeeId ?? eligible[0]?.id ?? '');
+    setStart(shift ? showTime(new Date(shift.startAt)) : prefill ? showTime(new Date(prefill.startAt)) : '07:00');
+    setEnd(shift ? showTime(new Date(shift.endAt)) : prefill ? showTime(new Date(prefill.endAt)) : '17:00');
     setNotes(shift?.notes ?? '');
     setPaidInternShift(Boolean(shift?.paidInternShift));
-  }, [visible, shift, day.getTime()]);
+  }, [visible, shift, prefill, day.getTime()]);
 
   const selectedEmployee = eligible.find((employee) => employee.id === employeeId);
   const selectEmployee = (employee: Employee) => {
     setEmployeeId(employee.id);
     setPaidInternShift(shift?.employeeId === employee.id ? Boolean(shift.paidInternShift) : false);
-    if (!shift) {
+    if (!shift && !prefill) {
       const window = employee.availability[toIsoWeekday(day)];
       if (window) { setStart(showMinute(window.startMinute)); setEnd(showMinute(window.endMinute)); }
     }
@@ -69,6 +71,7 @@ export function ManualShiftForm({ visible, day, shift, employees, onClose, onSav
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18 }}><View><Text style={{ color: palette.muted, fontSize: 12, fontWeight: '800' }}>{dateKey(day)}</Text><Text style={{ color: palette.ink, fontSize: 23, fontWeight: '800' }}>{shift ? 'Dienst bewerken' : 'Dienst toevoegen'}</Text></View><RoundIconButton icon="close" accessibilityLabel="Sluiten" onPress={onClose} /></View>
         <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 18, paddingBottom: 48, gap: 15 }}>
           <View style={{ padding: 17, borderRadius: 20, backgroundColor: '#FFF', gap: 14 }}>
+            {prefill ? <Text style={{ color: palette.muted, fontSize: 12 }}>Voorstel voor ontbrekende dagdekking. Controleer de medewerker en tijden voordat je opslaat.</Text> : null}
             <Text style={{ color: palette.ink, fontWeight: '800' }}>Medewerker</Text>
             {eligible.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{eligible.map((employee) => <Pressable key={employee.id} onPress={() => selectEmployee(employee)} style={{ padding: 10, borderRadius: 12, backgroundColor: employeeId === employee.id ? palette.primary : palette.palePrimary }}><Text style={{ color: employeeId === employee.id ? '#FFF' : palette.primaryDark, fontWeight: '700' }}>{employee.displayName}{employee.kind === 'intern' ? ' · stagiair' : employee.kind === 'periodic' ? ' · periodiek' : ''}</Text></Pressable>)}</View> : <Text style={{ color: palette.muted }}>Geen medewerker beschikbaar op deze datum.</Text>}
             {selectedEmployee?.kind === 'intern' ? <Pressable onPress={() => setPaidInternShift((value) => !value)} accessibilityRole="checkbox" accessibilityState={{ checked: paidInternShift }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}><Ionicons name={paidInternShift ? 'checkbox' : 'square-outline'} size={23} color={palette.primary} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: '800' }}>Betaalde dienst</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 2 }}>Telt mee voor de bezetting en mag zonder begeleider.</Text></View></Pressable> : null}

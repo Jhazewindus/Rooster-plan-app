@@ -14,6 +14,8 @@ Open de APK op je Android-tablet om de app te installeren. Als Android erom vraa
 - Afwezigheid en handmatige diensten toevoegen, aanpassen of verwijderen. Betrokken weken worden hersteld wanneer afwezigheid verandert.
 - Dag- en avondpauzes instellen. Alleen overlappende pauzetijd wordt van de getelde werkuren afgetrokken.
 - Per dag zien waar tussen 07:00 en 19:30 minder dan vijf medewerkers tegelijk staan ingepland. Gewone stage telt niet mee; betaalde stage-diensten wel.
+- Op een dekkingstekort tikken om vrije medewerkers en hun passende tijdvak te zien; een voorgestelde dienst wordt met naam en tijden vooringevuld.
+- Per medewerker de geplande weekuren na pauzes, betaalde stage-uren en het verschil met contracturen zien, zowel op het startscherm als bij een gekozen week.
 - Een week of maand als afbeelding delen en het jaar als Excel-werkmap exporteren. De jaarwerkmap bevat een maandoverzicht en alle ingeplande en open diensten.
 
 Alle planning staat lokaal op de tablet. De app synchroniseert niet tussen apparaten; bewaar belangrijke exports dus ook buiten de tablet.
