@@ -6,6 +6,7 @@ import {
   Employee,
   dateKey,
   durationMinutes,
+  formatTime,
   makeId,
   mondayOf,
   PlannerData,
@@ -61,6 +62,12 @@ export function workedMinutes(shift: Shift, settings?: PlannerSettings): number 
 
 export type CoverageGap = { startAt: string; endAt: string; staffCount: number };
 export type GapCandidate = { employee: Employee; startAt: string; endAt: string; coversWholeGap: boolean; projectedWeeklyMinutes: number; exceedsContract: boolean; withinRegularHours: boolean };
+
+/** Explain that these times mark understaffing, rather than a planned shift. */
+export function coverageGapDescription(gap: CoverageGap): string {
+  const scheduled = gap.staffCount === 0 ? 'niemand ingepland' : `${gap.staffCount} medewerker${gap.staffCount === 1 ? '' : 's'} ingepland`;
+  return `${formatTime(gap.startAt)}–${formatTime(gap.endAt)}: ${scheduled}, nog ${5 - gap.staffCount} nodig`;
+}
 
 /** Offer the longest free piece of a gap, preferring the employee's regular hours. */
 export function coverageGapCandidates(gap: CoverageGap, schedule: Schedule, employees: Employee[], absences: Absence[], settings?: PlannerSettings): GapCandidate[] {

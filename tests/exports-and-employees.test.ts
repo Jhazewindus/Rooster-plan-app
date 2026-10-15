@@ -3,7 +3,7 @@ import test from 'node:test';
 import { strFromU8, unzipSync } from 'fflate';
 import { Employee, PlannerData, Schedule, Shift } from '../src/domain';
 import { createYearWorkbook } from '../src/exportWorkbook';
-import { canWorkOnDate, dailyCoverageGaps, generateWeek, removeEmployeeFromData } from '../src/planner';
+import { canWorkOnDate, coverageGapDescription, dailyCoverageGaps, generateWeek, removeEmployeeFromData } from '../src/planner';
 
 const employee = (id: string, kind: Employee['kind'] = 'regular'): Employee => ({
   id, firstName: id, lastName: '', displayName: id, role: 'Dierenzorg & opvang', color: '#B76445',
@@ -61,6 +61,19 @@ test('daily coverage needs five distinct non-intern staff for the entire 07:00â€
   const duplicate = [...short, shift('duplicate', workers[0].id, at(7), at(19, 30))];
   assert.equal(dailyCoverageGaps(day, duplicate, [...workers, intern])[0].staffCount, 4);
   assert.deepEqual(dailyCoverageGaps(day, [...full.slice(0, 4), { ...short[4], paidInternShift: true }], [...workers, intern]), []);
+});
+
+test('an empty interval between staffed shifts shows no employees, not a misleading ratio', () => {
+  const day = new Date(2026, 9, 12);
+  const at = (hour: number, minute = 0) => new Date(2026, 9, 12, hour, minute).toISOString();
+  const workers = Array.from({ length: 5 }, (_, index) => employee(`regular-${index}`));
+  const shifts = workers.flatMap((person) => [
+    shift(`${person.id}-morning`, person.id, at(7), at(12)),
+    shift(`${person.id}-evening`, person.id, at(15), at(19, 30)),
+  ]);
+  const gaps = dailyCoverageGaps(day, shifts, workers);
+  assert.deepEqual(gaps, [{ startAt: at(12), endAt: at(15), staffCount: 0 }]);
+  assert.equal(coverageGapDescription(gaps[0]), '12:00â€“15:00: niemand ingepland, nog 5 nodig');
 });
 
 test('year export is a readable Excel ZIP with only that year and break-adjusted totals', () => {

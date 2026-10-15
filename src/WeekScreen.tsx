@@ -11,7 +11,7 @@ import { usePlanner } from './store';
 import { RecommendationsSheet } from './Recommendations';
 import { ManualShiftForm, ManualShiftPrefill } from './ManualShiftForm';
 import { HoursOverview } from './HoursOverview';
-import { coverageGapCandidates, dailyCoverageGaps, CoverageGap, workedMinutes } from './planner';
+import { coverageGapCandidates, coverageGapDescription, dailyCoverageGaps, CoverageGap, workedMinutes } from './planner';
 import { createYearWorkbook, shiftsForYear } from './exportWorkbook';
 import { publicationIssues } from './publication';
 
@@ -160,8 +160,8 @@ export function WeekScreen() {
                 </View>
                 {dayShifts.map((shift) => <ShiftRow key={shift.id} shift={shift} employees={data.employees} settings={data.settings} onOpen={() => shift.source === 'manual' ? openManual(day, schedule.manualShifts?.find((item) => item.id === shift.id || (item.employeeId === shift.employeeId && item.startAt <= shift.startAt && item.endAt >= shift.endAt)) ?? shift) : setSelectedShift(shift)} />)}
                 {coverageGaps.length ? <View style={{ backgroundColor: '#FBEAE6', borderRadius: 10, padding: 10, marginTop: 8, gap: 7 }}>
-                  <Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Onvoldoende dagdekking · minimaal 5 medewerkers</Text>
-                  <Text style={{ color: '#8A4D46', fontSize: 11 }}>Tik op een tijdvak om het gat te vullen. Betaalde stage-diensten tellen mee.</Text>
+                  <Text style={{ color: '#A43E35', fontSize: 12, fontWeight: '900' }}>⚠ Te weinig medewerkers · minimaal 5 tegelijk</Text>
+                  <Text style={{ color: '#8A4D46', fontSize: 11 }}>De tijden hieronder zijn perioden met een tekort. Tik om iemand toe te voegen. Open diensten en gewone stages tellen niet mee; betaalde stage-diensten wel.</Text>
                   {coverageGaps.map((gap) => {
                     const key = `${gap.startAt}/${gap.endAt}`;
                     const openTarget = openShiftForGap(dayShifts, gap);
@@ -169,7 +169,7 @@ export function WeekScreen() {
                       if (openTarget) { setSelectedGapKey(undefined); setSelectedShift(openTarget); }
                       else setSelectedGapKey((current) => current === key ? undefined : key);
                     }} style={{ backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ flex: 1, color: palette.ink, fontWeight: '800', fontSize: 12 }}>{formatTime(gap.startAt)}–{formatTime(gap.endAt)} · {gap.staffCount}/5</Text>
+                      <Text style={{ flex: 1, color: palette.ink, fontWeight: '800', fontSize: 12 }}>{coverageGapDescription(gap)}</Text>
                       <Text style={{ color: palette.primary, fontWeight: '800', fontSize: 11 }}>{openTarget ? 'Open dienst invullen' : 'Zoek medewerker'}</Text>
                       <Ionicons name="chevron-forward" size={15} color={palette.primary} />
                     </Pressable>;
@@ -257,7 +257,7 @@ function MonthPoster({ data, selectedDate }: { data: PlannerData; selectedDate: 
       const coverageGaps = schedule ? dailyCoverageGaps(day, shifts, data.employees) : [];
       return <View key={dateKey(day)} style={{ backgroundColor: '#FFF', borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', gap: 10 }}>
         <View style={{ width: 56 }}><Text style={{ color: palette.primary, fontSize: 11, fontWeight: '900' }}>{new Intl.DateTimeFormat('nl-NL', { weekday: 'short' }).format(day).toUpperCase()} {day.getDate()}</Text></View>
-        <View style={{ flex: 1, gap: 3 }}>{!schedule ? <Text style={{ color: '#A6631D', fontSize: 11 }}>Nog geen rooster</Text> : shifts.length ? shifts.map((shift) => <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text numberOfLines={1} style={{ color: shift.employeeId ? palette.ink : '#A6631D', fontSize: 11, fontWeight: '700', flex: 1 }}>{data.employees.find((item) => item.id === shift.employeeId)?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : ''}</Text><Text style={{ color: palette.muted, fontSize: 10 }}>{formatTime(shift.startAt)}–{formatTime(shift.endAt)}</Text></View>) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}{coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Dekking onder 5: {coverageDescription(coverageGaps)}</Text> : null}</View>
+        <View style={{ flex: 1, gap: 3 }}>{!schedule ? <Text style={{ color: '#A6631D', fontSize: 11 }}>Nog geen rooster</Text> : shifts.length ? shifts.map((shift) => <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text numberOfLines={1} style={{ color: shift.employeeId ? palette.ink : '#A6631D', fontSize: 11, fontWeight: '700', flex: 1 }}>{data.employees.find((item) => item.id === shift.employeeId)?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : ''}</Text><Text style={{ color: palette.muted, fontSize: 10 }}>{formatTime(shift.startAt)}–{formatTime(shift.endAt)}</Text></View>) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}{coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Tekort: {coverageDescription(coverageGaps)}</Text> : null}</View>
       </View>;
     })}
     {missing ? <Text style={{ color: '#A6631D', fontSize: 10, textAlign: 'center' }}>{missing} {missing === 1 ? 'week' : 'weken'} zonder rooster zijn gemarkeerd.</Text> : null}
@@ -280,7 +280,7 @@ function RosterPoster({ schedule, employees, weekStart }: { schedule: Schedule; 
       return <View key={id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 13, gap: 8 }}>
         <Text style={{ color: '#B76445', fontWeight: '900', fontSize: 11, letterSpacing: 0.6 }}>{long.toUpperCase()} · {new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short' }).format(day).toUpperCase()}</Text>
         {shifts.length ? shifts.map((shift) => { const employee = employees.find((item) => item.id === shift.employeeId); return <View key={shift.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEE6DC', paddingTop: 7, gap: 12 }}><Text style={{ color: shift.employeeId ? '#283044' : '#A6631D', fontSize: 12, fontWeight: '700', flex: 1 }}>{employee?.displayName ?? 'Open dienst'}{shift.paidInternShift ? ' · betaald' : ''}</Text><Text style={{ color: '#697286', fontSize: 11, fontWeight: '700' }}>{formatTime(shift.startAt)} – {formatTime(shift.endAt)}</Text></View>; }) : <Text style={{ color: '#98A0AF', fontSize: 11 }}>Geen diensten</Text>}
-        {coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Dekking onder 5: {coverageDescription(coverageGaps)}</Text> : null}
+        {coverageGaps.length ? <Text style={{ color: '#A43E35', fontSize: 10, fontWeight: '800' }}>⚠ Tekort: {coverageDescription(coverageGaps)}</Text> : null}
       </View>;
     })}
     <Text style={{ color: '#929AAA', fontSize: 10, textAlign: 'center', marginTop: 2 }}>Gegenereerd met RoosterPlan</Text>
@@ -292,7 +292,7 @@ function openShiftForGap(shifts: Shift[], gap: CoverageGap): Shift | undefined {
   return shifts.find((shift) => shift.employeeId === null && new Date(shift.startAt) < new Date(gap.endAt) && new Date(shift.endAt) > new Date(gap.startAt));
 }
 function formatHours(minutes: number): string { return (minutes / 60).toLocaleString('nl-NL', { maximumFractionDigits: 2 }); }
-function coverageDescription(gaps: CoverageGap[]): string { return gaps.map((gap) => `${formatTime(gap.startAt)}–${formatTime(gap.endAt)} (${gap.staffCount}/5)`).join(' · '); }
+function coverageDescription(gaps: CoverageGap[]): string { return gaps.map(coverageGapDescription).join(' · '); }
 function isToday(date: Date): boolean { return sameLocalDay(date, new Date()); }
 function weekNumber(date: Date): string {
   const value = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
