@@ -1,8 +1,10 @@
 # Verborgen voorbereiding voor gedeelde roosters
 
-De app blijft in versie 1.0.5 volledig lokaal werken. `src/cloud/` wordt nergens vanuit de app gestart en er is geen inlogscherm of automatische upload. De bestaande gegevens in AsyncStorage blijven dus op het apparaat. Een werkende gedeelde database vereist eerst een Firebase-project en een expliciete toekomstige aansluiting van deze module op de app.
+De app blijft in versie 1.0.6 volledig lokaal werken. `src/cloud/` wordt nergens vanuit de app gestart en er is geen inlogscherm of automatische upload. De bestaande gegevens in AsyncStorage blijven dus op het apparaat. Een werkende gedeelde database vereist eerst een Firebase-project en een expliciete toekomstige aansluiting van deze module op de app.
 
 De voorbereidende module gebruikt Google-aanmelding via de Android Google Sign-In SDK en Firebase Authentication. Firestore bewaart medewerkers, afwezigheden, instellingen en iedere roosterweek in een afzonderlijk document. Een synchronisatieronde vergelijkt lokale gegevens met een opgeslagen basisversie en de actuele serverversie. Wijzigingen aan verschillende weken kunnen samengaan; gelijktijdige wijzigingen aan hetzelfde document geven een conflict dat later in de UI opgelost moet worden. Firestore-transacties controleren het revisienummer bij upload. Een verwijderde week wordt als `null` met een nieuw revisienummer bewaard.
+
+De back-up en de laatste 30 wijzigingen in versie 1.0.6 zijn lokaal. Een gedeelde geschiedenis met de naam van de Google-gebruiker vereist bij activering een aparte cloudlog met serverdatum en account-UID; de huidige lokale aanduiding is bewust alleen „Dit apparaat”.
 
 ## Nodig voor activering
 

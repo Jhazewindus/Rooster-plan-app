@@ -13,6 +13,7 @@ import { ManualShiftForm, ManualShiftPrefill } from './ManualShiftForm';
 import { HoursOverview } from './HoursOverview';
 import { coverageGapCandidates, dailyCoverageGaps, CoverageGap, workedMinutes } from './planner';
 import { createYearWorkbook, shiftsForYear } from './exportWorkbook';
+import { publicationIssues } from './publication';
 
 type ExportScope = 'week' | 'month' | 'year';
 
@@ -49,6 +50,29 @@ export function WeekScreen() {
     { text: 'Annuleren', style: 'cancel' }, { text: 'Opnieuw genereren', onPress: planner.generateCurrentWeek },
   ]);
   const openCount = schedule?.shifts.filter((shift) => shift.employeeId === null).length ?? 0;
+  const publishIssues = schedule ? publicationIssues(schedule, data.employees) : [];
+  const changeStatus = () => {
+    if (!schedule) return;
+    if (schedule.status === 'published') {
+      Alert.alert('Rooster opnieuw openen?', 'Het rooster wordt weer een concept. Je kunt het daarna aanpassen en opnieuw controleren.', [
+        { text: 'Annuleren', style: 'cancel' }, { text: 'Open als concept', onPress: () => planner.setScheduleStatus('draft') },
+      ]);
+      return;
+    }
+    if (publishIssues.length) {
+      Alert.alert('Rooster nog niet klaar', `${publishIssues.slice(0, 5).map((issue) => `• ${issue.message}`).join('\n')}${publishIssues.length > 5 ? `\n… en nog ${publishIssues.length - 5} punt${publishIssues.length === 6 ? '' : 'en'}.` : ''}\n\nVul de diensten aan en probeer het opnieuw.`);
+      return;
+    }
+    const next = schedule.status === 'draft' ? 'final' : 'published';
+    Alert.alert(next === 'final' ? 'Rooster definitief maken?' : 'Rooster als gepubliceerd markeren?', next === 'final'
+      ? 'Alle dagen hebben voldoende bezetting. Je kunt het rooster later weer als concept openen.'
+      : 'Dit zet alleen de status op deze tablet. Deel het rooster zelf via Exporteren.', [
+      { text: 'Annuleren', style: 'cancel' },
+      { text: next === 'final' ? 'Maak definitief' : 'Markeer als gepubliceerd', onPress: () => {
+        if (!planner.setScheduleStatus(next)) Alert.alert('Rooster gewijzigd', 'Controleer het rooster opnieuw voordat je doorgaat.');
+      } },
+    ]);
+  };
   const exportSelected = async () => {
     try {
       setExporting(true);
@@ -107,8 +131,17 @@ export function WeekScreen() {
         {schedule ? <>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 4 }}>
             <Pill text={schedule.status === 'draft' ? 'CONCEPT' : schedule.status === 'final' ? 'DEFINITIEF' : 'GEPUBLICEERD'} color={schedule.status === 'draft' ? palette.amber : palette.green} background={schedule.status === 'draft' ? palette.paleAmber : palette.paleGreen} />
-            {schedule.status === 'draft' ? <Pressable onPress={() => confirmFinalize(schedule, openCount, planner.setScheduleStatus)}><Text style={{ color: palette.primary, fontSize: 13, fontWeight: '800' }}>Maak definitief</Text></Pressable> : <Text style={{ color: palette.green, fontSize: 12, fontWeight: '700' }}>Rooster is definitief</Text>}
+            <Pressable onPress={changeStatus} accessibilityRole="button" style={{ padding: 9 }}><Text style={{ color: palette.primary, fontSize: 13, fontWeight: '800' }}>{schedule.status === 'draft' ? 'Maak definitief' : schedule.status === 'final' ? 'Publiceer' : 'Open als concept'}</Text></Pressable>
           </View>
+          <Card style={{ marginTop: 10, gap: 7, borderColor: publishIssues.length ? '#E7ABA0' : '#D4E4D3' }}>
+            <Text style={{ color: palette.ink, fontSize: 15, fontWeight: '800' }}>Controle voor publiceren</Text>
+            {publishIssues.length ? <>
+              <Text style={{ color: palette.red, fontSize: 12, fontWeight: '800' }}>Nog {publishIssues.length} {publishIssues.length === 1 ? 'punt' : 'punten'} om op te lossen</Text>
+              {publishIssues.slice(0, 6).map((issue, index) => <Text key={`${issue.day}-${issue.kind}-${index}`} style={{ color: palette.ink, fontSize: 12 }}>• {issue.message}</Text>)}
+              {publishIssues.length > 6 ? <Text style={{ color: palette.muted, fontSize: 11 }}>En nog {publishIssues.length - 6} punten. Bekijk de dagen hieronder.</Text> : null}
+            </> : <Text style={{ color: palette.green, fontSize: 12, fontWeight: '700' }}>Alle dagen hebben tussen 07:00 en 19:30 minimaal vijf medewerkers. Geen open diensten of stagiairs zonder begeleiding.</Text>}
+            <Text style={{ color: palette.muted, fontSize: 11 }}>Publiceren verandert de status op deze tablet. Delen doe je via Exporteren.</Text>
+          </Card>
           <HoursOverview schedule={schedule} employees={data.employees} settings={data.settings} title="Uren in deze week" />
           <SectionTitle title="Deze week" trailing={<Text style={{ color: palette.muted, fontSize: 12 }}>{schedule.shifts.length - openCount} diensten · {openCount} open</Text>} />
           <View style={{ gap: 11 }}>
@@ -252,11 +285,6 @@ function RosterPoster({ schedule, employees, weekStart }: { schedule: Schedule; 
     })}
     <Text style={{ color: '#929AAA', fontSize: 10, textAlign: 'center', marginTop: 2 }}>Gegenereerd met RoosterPlan</Text>
   </View>;
-}
-
-function confirmFinalize(schedule: Schedule, openCount: number, setStatus: (status: Schedule['status']) => void) {
-  if (openCount > 0) { Alert.alert('Open diensten', `Er staan nog ${openCount} open dienst${openCount === 1 ? '' : 'en'} in het rooster. Wijs eerst vervangers toe.`); return; }
-  Alert.alert('Rooster definitief maken?', 'Je kunt dit rooster later weer als concept openen.', [{ text: 'Annuleren', style: 'cancel' }, { text: 'Definitief maken', onPress: () => setStatus('final') }]);
 }
 
 function sameLocalDay(first: Date, second: Date): boolean { return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate(); }

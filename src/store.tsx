@@ -1,14 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Absence, dateKey, Employee, emptyPlannerData, makeId, mondayOf, PlannerData, PlannerSettings, Schedule, Shift, Weekday } from './domain';
 import { assignReplacement, canWorkOnDate, currentSchedule, generateFutureScheduleRange, generateFutureWeek, generateWeek, hasRegularCoverage, rebuildAffectedSchedules, rebuildSchedule, recommendations, removeEmployeeFromData, suggestCoverage } from './planner';
+import { parseLegacyData, parseStoredArchive, validateArchive } from './backup';
+import { canUndo, HistoryEntry, PlannerArchive, recordChange, undoLast } from './history';
+import { publicationIssues } from './publication';
 
-const STORAGE_KEY = 'roosterplan.v1';
+const STORAGE_KEY = 'roosterplan.v2';
+const LEGACY_STORAGE_KEY = 'roosterplan.v1';
 type PlannerContextValue = {
   data: PlannerData;
+  history: HistoryEntry[];
+  canUndo: boolean;
   weekStart: Date;
   schedule?: Schedule;
   ready: boolean;
+  storageBlocked: boolean;
   error: string | null;
   goToWeek: (date: Date) => void;
   addEmployee: (employee: Omit<Employee, 'id' | 'displayName' | 'active'>) => void;
@@ -24,34 +31,61 @@ type PlannerContextValue = {
   setSettings: (settings: PlannerSettings) => void;
   assign: (shiftId: string, employeeId: string) => boolean;
   useCoveragePlan: (shift: Shift) => boolean;
-  setScheduleStatus: (status: Schedule['status']) => void;
+  setScheduleStatus: (status: Schedule['status']) => boolean;
+  undoLastChange: () => void;
+  restoreArchive: (archive: PlannerArchive) => void;
   loadDemo: () => void;
 };
 
 const PlannerContext = createContext<PlannerContextValue | null>(null);
 
 export function PlannerProvider({ children }: React.PropsWithChildren) {
-  const [data, setData] = useState<PlannerData>(emptyPlannerData);
+  const [archive, setArchive] = useState<PlannerArchive>(() => ({ data: emptyPlannerData(), history: [] }));
+  const data = archive.data;
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [ready, setReady] = useState(false);
+  const [writable, setWritable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const writeQueue = useRef(Promise.resolve());
   const schedule = currentSchedule(data, weekStart);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
-      .then((stored) => { if (stored) setData(JSON.parse(stored) as PlannerData); })
-      .catch(() => setError('Je gegevens konden niet worden geladen.'))
+      .then(async (stored) => {
+        if (stored) setArchive(parseStoredArchive(stored));
+        else {
+          const legacy = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+          if (legacy) setArchive(parseLegacyData(legacy));
+        }
+        setWritable(true);
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : 'Je gegevens konden niet worden geladen.'))
       .finally(() => setReady(true));
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => setError('Je wijzigingen konden niet worden opgeslagen.'));
-  }, [data, ready]);
+    if (!ready || !writable) return;
+    const serialized = JSON.stringify(archive);
+    writeQueue.current = writeQueue.current.catch(() => undefined)
+      .then(() => AsyncStorage.setItem(STORAGE_KEY, serialized))
+      .catch(() => setError('Je wijzigingen konden niet worden opgeslagen.'));
+  }, [archive, ready, writable]);
 
-  const updateSchedule = useCallback((next: Schedule) => {
-    setData((current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== next.id), next] }));
+  const commit = useCallback((label: string, update: (current: PlannerData) => PlannerData) => {
+    if (!writable) return;
+    setArchive((current) => recordChange(current, update(current.data), label));
+  }, [writable]);
+
+  const undoLastChange = useCallback(() => setArchive((current) => undoLast(current)), []);
+  const restoreArchive = useCallback((restored: PlannerArchive) => {
+    setArchive(validateArchive(restored));
+    setWritable(true);
+    setError(null);
   }, []);
+
+  const updateSchedule = useCallback((next: Schedule, label: string) => {
+    commit(label, (current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== next.id), next] }));
+  }, [commit]);
 
   const addEmployee = useCallback((input: Omit<Employee, 'id' | 'displayName' | 'active'>) => {
     const employee: Employee = {
@@ -60,51 +94,55 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
       displayName: [input.firstName.trim(), input.lastName.trim()].filter(Boolean).join(' '),
       active: true,
     };
-    setData((current) => ({ ...current, employees: [...current.employees, employee] }));
-  }, []);
+    commit(`${employee.displayName} toegevoegd`, (current) => ({ ...current, employees: [...current.employees, employee] }));
+  }, [commit]);
 
   const updateEmployee = useCallback((id: string, input: Omit<Employee, 'id' | 'displayName' | 'active'>) => {
-    setData((current) => ({ ...current, employees: current.employees.map((item) => item.id === id
+    const name = [input.firstName.trim(), input.lastName.trim()].filter(Boolean).join(' ');
+    commit(`${name} aangepast`, (current) => ({ ...current, employees: current.employees.map((item) => item.id === id
       ? { ...item, ...input, displayName: [input.firstName.trim(), input.lastName.trim()].filter(Boolean).join(' ') } : item) }));
-  }, []);
+  }, [commit]);
 
-  const removeEmployee = useCallback((id: string) => setData((current) => removeEmployeeFromData(current, id)), []);
+  const removeEmployee = useCallback((id: string) => {
+    const name = data.employees.find((item) => item.id === id)?.displayName ?? 'Medewerker';
+    commit(`${name} verwijderd`, (current) => removeEmployeeFromData(current, id));
+  }, [data.employees, commit]);
 
   const addAbsence = useCallback((input: Omit<Absence, 'id'>) => {
     const absence: Absence = { ...input, id: makeId() };
-    setData((current) => ({
+    commit('Afwezigheid toegevoegd', (current) => ({
       ...current,
       absences: [...current.absences, absence],
       schedules: rebuildAffectedSchedules(current, [...current.absences, absence], [absence]),
     }));
-  }, []);
+  }, [commit]);
 
   const updateAbsence = useCallback((id: string, input: Omit<Absence, 'id'>) => {
-    setData((current) => {
+    commit('Afwezigheid aangepast', (current) => {
       const previous = current.absences.find((item) => item.id === id);
       if (!previous) return current;
       const updated = { ...input, id };
       const absences = current.absences.map((item) => item.id === id ? updated : item);
       return { ...current, absences, schedules: rebuildAffectedSchedules(current, absences, [previous, updated]) };
     });
-  }, []);
+  }, [commit]);
 
   const removeAbsence = useCallback((id: string) => {
-    setData((current) => {
+    commit('Afwezigheid verwijderd', (current) => {
       const previous = current.absences.find((item) => item.id === id);
       if (!previous) return current;
       const absences = current.absences.filter((item) => item.id !== id);
       return { ...current, absences, schedules: rebuildAffectedSchedules(current, absences, [previous]) };
     });
-  }, []);
+  }, [commit]);
 
   const generateCurrentWeek = useCallback(() => {
-    setData((current) => ({ ...current, schedules: generateFutureWeek(weekStart, current.employees, current.absences, current.schedules) }));
-  }, [weekStart]);
+    commit('Weekrooster gegenereerd', (current) => ({ ...current, schedules: generateFutureWeek(weekStart, current.employees, current.absences, current.schedules) }));
+  }, [weekStart, commit]);
 
   const generateMonths = useCallback((months: 1 | 6 | 12) => {
-    setData((current) => ({ ...current, schedules: generateFutureScheduleRange(weekStart, months, current.employees, current.absences, current.schedules) }));
-  }, [weekStart]);
+    commit(`${months} ${months === 1 ? 'maand' : 'maanden'} gegenereerd`, (current) => ({ ...current, schedules: generateFutureScheduleRange(weekStart, months, current.employees, current.absences, current.schedules) }));
+  }, [weekStart, commit]);
 
   const saveManualShift = useCallback((input: Omit<Shift, 'id' | 'source' | 'originalEmployeeId'>, existingId?: string): string | null => {
     const start = new Date(input.startAt);
@@ -121,16 +159,16 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     const shift: Shift = { ...input, paidInternShift: employee.kind === 'intern' && input.paidInternShift ? true : undefined, id: existingId ?? makeId(), source: 'manual', originalEmployeeId: null };
     const manualShifts = [...(base.manualShifts ?? []).filter((item) => item.id !== existingId), shift];
     const next = rebuildSchedule({ ...base, manualShifts }, data.employees, data.absences);
-    setData((current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== base.id), next] }));
+    commit(existingId ? 'Handmatige dienst aangepast' : 'Handmatige dienst toegevoegd', (current) => ({ ...current, schedules: [...current.schedules.filter((item) => item.id !== base.id), next] }));
     return null;
-  }, [data]);
+  }, [data, commit]);
 
   const removeManualShift = useCallback((id: string) => {
-    setData((current) => ({ ...current, schedules: current.schedules.map((item) => item.manualShifts?.some((shift) => shift.id === id)
+    commit('Handmatige dienst verwijderd', (current) => ({ ...current, schedules: current.schedules.map((item) => item.manualShifts?.some((shift) => shift.id === id)
       ? rebuildSchedule({ ...item, manualShifts: item.manualShifts.filter((shift) => shift.id !== id) }, current.employees, current.absences) : item) }));
-  }, []);
+  }, [commit]);
 
-  const setSettings = useCallback((settings: PlannerSettings) => setData((current) => ({ ...current, settings })), []);
+  const setSettings = useCallback((settings: PlannerSettings) => commit('Pauzes aangepast', (current) => ({ ...current, settings })), [commit]);
 
   const assign = useCallback((shiftId: string, employeeId: string) => {
     if (!schedule) return false;
@@ -139,7 +177,7 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     if (!target || !employee) return false;
     const option = recommendations(target, schedule, data.employees, data.absences, data.settings).find((item) => item.employee.id === employeeId);
     if (!option?.canCover) return false;
-    updateSchedule(assignReplacement(schedule, shiftId, employeeId));
+    updateSchedule({ ...assignReplacement(schedule, shiftId, employeeId), status: 'draft' }, 'Open dienst ingevuld');
     return true;
   }, [data.absences, data.employees, schedule, updateSchedule]);
 
@@ -153,15 +191,18 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     }));
     updateSchedule({
       ...schedule,
+      status: 'draft',
       updatedAt: new Date().toISOString(),
       shifts: [...schedule.shifts.filter((item) => item.id !== target.id), ...newShifts],
-    });
+    }, 'Open dienst verdeeld');
     return true;
   }, [data.absences, data.employees, schedule, updateSchedule]);
 
   const setScheduleStatus = useCallback((status: Schedule['status']) => {
-    if (schedule) updateSchedule({ ...schedule, status, updatedAt: new Date().toISOString() });
-  }, [schedule, updateSchedule]);
+    if (!schedule || status !== 'draft' && publicationIssues(schedule, data.employees).length > 0) return false;
+    updateSchedule({ ...schedule, status, updatedAt: new Date().toISOString() }, status === 'draft' ? 'Rooster heropend' : status === 'final' ? 'Rooster definitief gemaakt' : 'Rooster gepubliceerd');
+    return true;
+  }, [schedule, data.employees, updateSchedule]);
 
   const loadDemo = useCallback(() => {
     const colors = ['#B76445', '#668B6B', '#D29C55', '#7B94A6'];
@@ -176,15 +217,15 @@ export function PlannerProvider({ children }: React.PropsWithChildren) {
     const end = new Date(monday); end.setHours(12, 0, 0, 0);
     const absence: Absence = { id: makeId(), employeeId: employees[0].id, type: 'sick', startAt: start.toISOString(), endAt: end.toISOString(), notes: 'Voorbeeld' };
     const demoSchedule = generateWeek(weekStart, employees, [absence]);
-    setData({ employees, absences: [absence], schedules: [demoSchedule], settings: { breaks: [] } });
-  }, [weekStart]);
+    commit('Voorbeeldgegevens geladen', () => ({ employees, absences: [absence], schedules: [demoSchedule], settings: { breaks: [] } }));
+  }, [weekStart, commit]);
 
   const value = useMemo<PlannerContextValue>(() => ({
-    data, weekStart, schedule, ready, error,
+    data, history: archive.history, canUndo: canUndo(archive), weekStart, schedule, ready, storageBlocked: !writable, error,
     goToWeek: (date) => setWeekStart(mondayOf(date)),
     addEmployee, updateEmployee, removeEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths,
-    saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo,
-  }), [data, weekStart, schedule, ready, error, addEmployee, updateEmployee, removeEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths, saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, loadDemo]);
+    saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, undoLastChange, restoreArchive, loadDemo,
+  }), [archive, data, weekStart, schedule, ready, writable, error, addEmployee, updateEmployee, removeEmployee, addAbsence, updateAbsence, removeAbsence, generateCurrentWeek, generateMonths, saveManualShift, removeManualShift, setSettings, assign, useCoveragePlan, setScheduleStatus, undoLastChange, restoreArchive, loadDemo]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 }

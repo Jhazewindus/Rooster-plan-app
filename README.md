@@ -17,6 +17,9 @@ Open de APK op je Android-tablet om de app te installeren. Als Android erom vraa
 - Op een dekkingstekort tikken om vrije medewerkers en hun passende tijdvak te zien; een voorgestelde dienst wordt met naam en tijden vooringevuld.
 - Per medewerker de geplande weekuren na pauzes, betaalde stage-uren en het verschil met contracturen zien, zowel op het startscherm als bij een gekozen week.
 - Een week of maand als afbeelding delen en het jaar als Excel-werkmap exporteren. De jaarwerkmap bevat een maandoverzicht en alle ingeplande en open diensten.
+- In Instellingen een volledige back-up bewaren of terugzetten. Een Excel-export is om te lezen; alleen een back-up kan gegevens herstellen.
+- De laatste 30 wijzigingen op deze tablet bekijken en de nieuwste wijziging terugdraaien.
+- Een week pas definitief maken en als gepubliceerd markeren als er geen open diensten, bezettingsgaten of stagiairs zonder begeleiding zijn. Publiceren verandert de status op de tablet; delen gaat via Exporteren.
 
 Alle planning staat lokaal op de tablet. De app synchroniseert niet tussen apparaten; bewaar belangrijke exports dus ook buiten de tablet.
 

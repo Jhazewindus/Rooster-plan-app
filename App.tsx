@@ -26,6 +26,7 @@ function AppContent() {
   const planner = usePlanner();
   const [tab, setTab] = useState<TabId>('home');
   if (!planner.ready) return <SafeAreaView style={{ flex: 1, backgroundColor: palette.page }}><LoadingBlock /></SafeAreaView>;
+  if (planner.storageBlocked) return <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}><StatusBar style="dark" /><SettingsScreen /></SafeAreaView>;
 
   const navigateFromHome = (target: 'week' | 'team' | 'absences') => setTab(target);
   return <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: palette.page }}>

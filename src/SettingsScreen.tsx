@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { BreakRule, makeId, WEEKDAYS, Weekday } from './domain';
 import { usePlanner } from './store';
 import { Card, Field, PageHeading, palette, PrimaryButton, RoundIconButton, TimeField } from './ui';
 import { parseTimeInput } from './timeInput';
+import { createBackup, parseBackup } from './backup';
 
 function showTime(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
@@ -16,6 +20,7 @@ export function SettingsScreen() {
   const rules = planner.data.settings?.breaks ?? [];
   const [formVisible, setFormVisible] = useState(false);
   const [selected, setSelected] = useState<BreakRule | undefined>();
+  const [busy, setBusy] = useState(false);
   const open = (rule?: BreakRule) => { setSelected(rule); setFormVisible(true); };
   const close = () => { setFormVisible(false); setSelected(undefined); };
   const save = (rule: BreakRule) => {
@@ -27,9 +32,44 @@ export function SettingsScreen() {
     { text: 'Verwijderen', style: 'destructive', onPress: () => planner.setSettings({ breaks: rules.filter((item) => item.id !== rule.id) }) },
   ]);
 
+  const saveBackup = async () => {
+    try {
+      setBusy(true);
+      const name = `RoosterPlan-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const file = new File(Paths.cache, name);
+      file.write(createBackup({ data: planner.data, history: planner.history }));
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Back-up bewaren' });
+      else await Share.share({ url: file.uri, message: 'RoosterPlan-back-up' });
+    } catch (cause) {
+      Alert.alert('Back-up maken mislukt', cause instanceof Error ? cause.message : 'Probeer het opnieuw.');
+    } finally { setBusy(false); }
+  };
+
+  const restoreBackup = async () => {
+    try {
+      setBusy(true);
+      const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (picked.canceled) return;
+      const file = new File(picked.assets[0].uri);
+      const { archive, exportedAt } = parseBackup(await file.text());
+      const day = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(exportedAt));
+      Alert.alert('Back-up terugzetten?', `Back-up van ${day}: ${archive.data.employees.length} medewerkers, ${archive.data.schedules.length} roosterweken en ${archive.data.absences.length} afwezigheden.\n\nDe huidige gegevens en wijzigingsgeschiedenis op deze tablet worden vervangen. Bewaar ze eerst als back-up als je ze wilt houden.`, [
+        { text: 'Annuleren', style: 'cancel' },
+        { text: 'Terugzetten', onPress: () => planner.restoreArchive(archive) },
+      ]);
+    } catch (cause) {
+      Alert.alert('Back-up openen mislukt', cause instanceof Error ? cause.message : 'Kies een RoosterPlan-back-upbestand.');
+    } finally { setBusy(false); }
+  };
+
+  if (planner.storageBlocked) return <View style={{ flex: 1, backgroundColor: palette.page }}><ScrollView contentContainerStyle={{ padding: 19, gap: 14 }}>
+    <PageHeading eyebrow="Herstel" title="Gegevens terugzetten" subtitle="De opgeslagen gegevens konden niet worden geopend. Zet een RoosterPlan-back-up terug om verder te gaan." />
+    <Card style={{ gap: 12 }}><Text style={{ color: palette.ink, fontSize: 14 }}>Je huidige gegevens worden niet overschreven totdat je een back-up kiest en bevestigt.</Text><PrimaryButton title={busy ? 'Bestand openen…' : 'Back-up terugzetten'} icon="folder-open-outline" disabled={busy} onPress={restoreBackup} /></Card>
+  </ScrollView></View>;
+
   return <View style={{ flex: 1, backgroundColor: palette.page }}>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 19, paddingBottom: 32, gap: 12 }}>
-      <PageHeading eyebrow="Algemeen" title="Instellingen" subtitle="Pauzes tellen voor medewerkers en stagiairs mee als niet-gewerkte tijd." right={<RoundIconButton icon="add" accessibilityLabel="Pauze toevoegen" onPress={() => open()} />} />
+      <PageHeading eyebrow="Algemeen" title="Instellingen" subtitle="Pauzes, back-ups en je laatste wijzigingen op één plek." />
       <Card style={{ gap: 9 }}>
         <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 16 }}>Pauzeregels</Text>
         <Text style={{ color: palette.muted, fontSize: 13, lineHeight: 19 }}>Stel een tijdvak en de weekdagen in. De pauze wordt alleen afgetrokken van diensten die dat tijdvak overlappen. Een avondpauze telt dus alleen voor wie dan werkt. Pauzes veranderen de begin- en eindtijd van een dienst niet.</Text>
@@ -44,6 +84,27 @@ export function SettingsScreen() {
         <Pressable onPress={() => remove(rule)} accessibilityLabel="Pauze verwijderen" style={{ padding: 9 }}><Ionicons name="trash-outline" size={20} color={palette.red} /></Pressable>
       </Card>)}
       <PrimaryButton title="Pauze toevoegen" icon="add" onPress={() => open()} />
+
+      <Card style={{ gap: 10, marginTop: 6 }}>
+        <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 16 }}>Back-up en herstel</Text>
+        <Text style={{ color: palette.muted, fontSize: 12, lineHeight: 18 }}>Bewaar een volledige kopie van medewerkers, afwezigheden, roosters, pauzes en de wijzigingsgeschiedenis. Zet die later terug op deze of een andere tablet.</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
+          <View style={{ minWidth: 190, flex: 1 }}><PrimaryButton title={busy ? 'Even wachten…' : 'Back-up bewaren'} icon="download-outline" disabled={busy} compact onPress={saveBackup} /></View>
+          <View style={{ minWidth: 190, flex: 1 }}><PrimaryButton title="Back-up terugzetten" icon="folder-open-outline" disabled={busy} compact onPress={restoreBackup} /></View>
+        </View>
+        <Text style={{ color: palette.muted, fontSize: 11 }}>Bewaar het bestand op een veilige plek. Een Excel-export kan niet worden teruggezet.</Text>
+      </Card>
+
+      <Card style={{ gap: 9 }}>
+        <Text style={{ color: palette.ink, fontWeight: '800', fontSize: 16 }}>Laatste wijzigingen</Text>
+        <Text style={{ color: palette.muted, fontSize: 12 }}>De laatste 30 wijzigingen op deze tablet. Alleen de nieuwste wijziging kun je terugdraaien.</Text>
+        {planner.history.length === 0 ? <Text style={{ color: palette.muted, fontSize: 12 }}>Nog geen wijzigingen opgeslagen.</Text> : planner.history.slice().reverse().map((entry, index) => <View key={entry.id} style={{ borderTopWidth: 1, borderColor: palette.line, paddingTop: 9, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+          <View style={{ flex: 1 }}><Text style={{ color: entry.undoneAt ? palette.muted : palette.ink, fontWeight: '700', fontSize: 12 }}>{entry.label}{entry.undoneAt ? ' · teruggedraaid' : ''}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 3 }}>{new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(entry.at))} · {entry.actor}</Text></View>
+          {index === 0 && planner.canUndo ? <Pressable accessibilityRole="button" accessibilityLabel="Laatste wijziging terugdraaien" onPress={() => Alert.alert('Laatste wijziging terugdraaien?', entry.label, [
+            { text: 'Annuleren', style: 'cancel' }, { text: 'Terugdraaien', onPress: planner.undoLastChange },
+          ])} style={{ padding: 8, borderRadius: 9, backgroundColor: palette.palePrimary }}><Text style={{ color: palette.primaryDark, fontWeight: '800', fontSize: 12 }}>Terugdraaien</Text></Pressable> : null}
+        </View>)}
+      </Card>
     </ScrollView>
     <BreakForm visible={formVisible} rule={selected} onClose={close} onSave={save} />
   </View>;
