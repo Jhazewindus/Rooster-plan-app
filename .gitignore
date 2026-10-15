@@ -2,6 +2,7 @@ node_modules/
 .expo/
 dist/
 android/.gradle/
+android/.kotlin/
 android/.idea/
 android/local.properties
 android/build/

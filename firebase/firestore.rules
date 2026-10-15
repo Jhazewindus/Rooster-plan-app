@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function teamPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId);
+    }
+
+    function validMembers(members) {
+      return members is list && members.size() >= 1 && members.size() <= 3;
+    }
+
+    function isMember(teamId) {
+      return request.auth != null
+        && exists(teamPath(teamId))
+        && validMembers(get(teamPath(teamId)).data.memberUids)
+        && request.auth.uid in get(teamPath(teamId)).data.memberUids;
+    }
+
+    function validPartId(partId) {
+      return partId in ['employees', 'absences', 'settings']
+        || partId.matches('^week-[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function validPayload(partId, payload) {
+      return ((partId == 'employees' || partId == 'absences') && payload is list)
+        || (partId == 'settings' && payload is map && payload.breaks is list)
+        || (partId.matches('^week-[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && (payload == null || (payload is map && payload.weekStart is string && payload.shifts is list)));
+    }
+
+    function validWrite(partId, revision) {
+      return validPartId(partId)
+        && request.resource.data.keys().hasOnly(['schemaVersion', 'revision', 'payload', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasAll(['schemaVersion', 'revision', 'payload', 'updatedAt', 'updatedBy'])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.revision == revision
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && validPayload(partId, request.resource.data.payload);
+    }
+
+    // Membership is provisioned by an administrator in Firebase, never by the app.
+    match /teams/{teamId} {
+      allow get: if request.auth != null
+        && validMembers(resource.data.memberUids)
+        && request.auth.uid in resource.data.memberUids;
+      allow list, create, update, delete: if false;
+
+      match /parts/{partId} {
+        allow get: if isMember(teamId) && validPartId(partId);
+        allow list: if isMember(teamId);
+        allow create: if isMember(teamId) && validWrite(partId, 1);
+        allow update: if isMember(teamId) && validWrite(partId, resource.data.revision + 1);
+        allow delete: if false;
+      }
+    }
+  }
+}
